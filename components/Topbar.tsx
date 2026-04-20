@@ -139,7 +139,7 @@ export default function Topbar() {
                       background:  lang === l.code ? '#f0faf4' : 'white',
                       color:       lang === l.code ? '#1b4332' : '#131f18',
                       fontWeight:  lang === l.code ? 600 : 400,
-                      direction:   l.code === 'ar' ? 'rtl' : 'ltr',
+                      direction:   'ltr',
                     }}
                   >
                     <span>{l.flag}</span>
