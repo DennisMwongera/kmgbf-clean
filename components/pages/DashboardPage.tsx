@@ -16,14 +16,46 @@ function RadarChart({ scores, labels }: { scores: Record<string, number | null>;
     chart.current = new Chart(ref.current, {
       type: 'radar',
       data: {
-        labels: labels.map(d => d.length > 18 ? d.slice(0,16)+'…' : d),
-        datasets: [{ data: Object.values(scores).map(v => v ?? 0), backgroundColor:'rgba(64,145,108,.12)', borderColor:'#2d6a4f', borderWidth:2, pointBackgroundColor:'#52b788', pointRadius:3 }],
+        labels: labels.map(d => {
+          // Wrap long labels into two lines for readability
+          const words = d.split(' ')
+          if (words.length <= 2) return d
+          const mid = Math.ceil(words.length / 2)
+          return [words.slice(0, mid).join(' '), words.slice(mid).join(' ')]
+        }),
+        datasets: [{
+          data: Object.values(scores).map(v => v ?? 0),
+          backgroundColor: 'rgba(64,145,108,.15)',
+          borderColor:     '#2d6a4f',
+          borderWidth:     2,
+          pointBackgroundColor: '#52b788',
+          pointRadius:     4,
+          pointHoverRadius:6,
+        }],
       },
-      options: { scales:{ r:{ min:0, max:5, ticks:{stepSize:1,font:{size:8},backdropColor:'transparent',color:'#9ca3af'}, grid:{color:'rgba(0,0,0,.06)'}, angleLines:{color:'rgba(0,0,0,.06)'}, pointLabels:{font:{size:9,family:'Syne'},color:'#1b4332'} } }, plugins:{legend:{display:false}}, animation:{duration:700} },
+      options: {
+        layout: { padding: 28 },
+        scales: {
+          r: {
+            min: 0, max: 5,
+            ticks: { stepSize:1, font:{size:9}, backdropColor:'transparent', color:'#9ca3af' },
+            grid:        { color:'rgba(0,0,0,.06)' },
+            angleLines:  { color:'rgba(0,0,0,.08)' },
+            pointLabels: {
+              font: { size:11, family:'Syne', weight:'500' },
+              color: '#1b4332',
+              padding: 8,
+            },
+          },
+        },
+        plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label:(ctx) => ` ${ctx.parsed.r.toFixed(1)} / 5` } } },
+        animation: { duration:600 },
+      },
     })
     return () => chart.current?.destroy()
   }, [scores, labels])
-  return <div className="h-[240px] flex items-center justify-center"><canvas ref={ref}/></div>
+  // Increased height from 240 to 380 so labels have room
+  return <div style={{ height:380, position:'relative' }}><canvas ref={ref} style={{ maxHeight:380 }}/></div>
 }
 
 export default function DashboardPage() {

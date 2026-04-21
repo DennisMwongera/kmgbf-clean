@@ -5,7 +5,7 @@ const en: Translations = {
   dir:  'ltr',
 
   nav: {
-    brand:       'Capacity Needs Assessment Tool',
+    brand:       'Capacity Needs Assessment',
     subtitle:    'Kunming-Montreal Global Biodiversity Framework',
     assessment:  'Assessment',
     analysis:    'Analysis',
@@ -18,6 +18,7 @@ const en: Translations = {
     priority:    'Prioritization',
     cdp:         'Development Plan',
     report:      'Reports & Charts',
+    team:        'Team',
     exportData:  'Export Data',
     signIn:      'Sign in to sync data',
     signOut:     'Sign out',

@@ -21,6 +21,7 @@ export default function Sidebar({ onExport }: Props) {
     { section: t.nav.assessment, items: [
       { page: 'dashboard' as Page, icon: '📊', label: t.nav.dashboard },
       { page: 'profile'   as Page, icon: '🏛️', label: t.nav.profile   },
+      { page: 'team'      as Page, icon: '👥', label: t.nav.team ?? 'Team'     },
       { page: 'core'      as Page, icon: '🔍', label: t.nav.core      },
       { page: 'targets'   as Page, icon: '🎯', label: t.nav.targets   },
     ]},
@@ -35,10 +36,11 @@ export default function Sidebar({ onExport }: Props) {
   ]
 
   async function signOut() {
-    await supabase.auth.signOut()
-    setUser(null)
-    window.location.href = '/auth'
-  }
+  await supabase.auth.signOut()
+  localStorage.removeItem('kmgbf-v2')  // clears the Zustand persist cache
+  setUser(null)
+  window.location.href = '/auth'
+}
 
   const rc = ROLE_STYLE[user?.role ?? 'viewer']
 
@@ -126,6 +128,17 @@ export default function Sidebar({ onExport }: Props) {
           </div>
         ))}
       </nav>
+
+      {/* Admin link — only visible to admins */}
+      {user?.role === 'admin' && (
+        <div className="relative px-4 pb-1 border-t border-white/[0.06] pt-2">
+          <a href="/admin"
+            className="flex items-center gap-2.5 px-2 py-2 rounded-xl text-[12px] font-semibold transition-colors"
+            style={{ background:'rgba(220,38,38,.12)', color:'#fca5a5', border:'1px solid rgba(220,38,38,.2)' }}>
+            <span>⚙️</span> Admin Panel
+          </a>
+        </div>
+      )}
 
       {/* Export + Footer */}
       <div className="relative px-4 py-3 border-t border-white/[0.06] space-y-2">
