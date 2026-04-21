@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '@/lib/store'
 import { DIMENSIONS, KMGBF_TARGETS } from '@/lib/constants'
+import { getT } from '@/lib/i18n'
 import { getDimScores, getOverall, getTargetAvg, groupedQuestions, interpret, scoreColor, gapBadge, chipStyle } from '@/lib/utils'
 import { PageHeader, ScoreChip, GapBadge, EmptyState, Tabs } from '@/components/ui'
 import { Chart, BarController, CategoryScale, LinearScale, BarElement, RadarController, RadialLinearScale, PointElement, LineElement, Filler, Tooltip } from 'chart.js'
@@ -36,6 +37,63 @@ function TargetBar({ assessment }: { assessment: any }) {
   }, [assessment])
   return <canvas ref={ref}/>
 }
+
+function ReportRadarChart({ assessment }: { assessment: any }) {
+  const lang       = useStore(s => s.lang)
+  const t          = getT(lang ?? 'en')
+  const ref        = useRef<HTMLCanvasElement>(null)
+  const chart      = useRef<Chart | null>(null)
+  const dimScores  = getDimScores(assessment)
+  const labels     = t.dimensions
+  const data       = Object.values(dimScores).map(v => v ?? 0)
+
+  useEffect(() => {
+    if (!ref.current) return
+    chart.current?.destroy()
+    chart.current = new Chart(ref.current, {
+      type: 'radar',
+      data: {
+        labels: labels.map(d => {
+          const words = d.split(' ')
+          if (words.length <= 2) return d
+          const mid = Math.ceil(words.length / 2)
+          return [words.slice(0, mid).join(' '), words.slice(mid).join(' ')]
+        }),
+        datasets: [{
+          data,
+          backgroundColor:      'rgba(64,145,108,.15)',
+          borderColor:          '#2d6a4f',
+          borderWidth:          2,
+          pointBackgroundColor: '#52b788',
+          pointRadius:          4,
+          pointHoverRadius:     6,
+        }],
+      },
+      options: {
+        layout: { padding: 28 },
+        scales: {
+          r: {
+            min: 0, max: 5,
+            ticks: { stepSize:1, font:{size:9}, backdropColor:'transparent', color:'#9ca3af' },
+            grid:        { color:'rgba(0,0,0,.06)' },
+            angleLines:  { color:'rgba(0,0,0,.08)' },
+            pointLabels: {
+              font: { size:11, family:'Syne', weight:'500' },
+              color: '#1b4332',
+              padding: 8,
+            },
+          },
+        },
+        plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label:(ctx) => ` ${ctx.parsed.r.toFixed(1)} / 5` } } },
+        animation: { duration:600 },
+      },
+    })
+    return () => chart.current?.destroy()
+  }, [assessment, labels])
+
+  return <div style={{ height:380, position:'relative' }}><canvas ref={ref} style={{ maxHeight:380 }}/></div>
+}
+
 
 const TABS = [{id:'summary',label:'📋 Summary'},{id:'charts',label:'📊 Charts'},{id:'core',label:'🔍 Core Scores'},{id:'targets',label:'🎯 Targets'},{id:'cdp',label:'📄 Dev. Plan'}]
 
@@ -104,10 +162,7 @@ export default function ReportPage() {
         <div className="grid grid-cols-2 gap-5">
           <div className="card"><div className="card-title">📊 Dimension Bar Chart</div><div style={{height:300}}><HBarChart scores={dimScores}/></div></div>
           <div className="card"><div className="card-title">🕸️ Capacity Radar</div>
-            <div style={{height:300,display:'flex',alignItems:'center',justifyContent:'center'}}>
-              {/* Inline mini radar */}
-              <canvas id="reportRadar"/>
-            </div>
+            <ReportRadarChart assessment={assessment}/>
           </div>
           <div className="card" style={{gridColumn:'span 2'}}><div className="card-title">🎯 All 23 KMGBF Target Scores</div><div style={{height:240}}><TargetBar assessment={assessment}/></div></div>
         </div>

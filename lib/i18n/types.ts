@@ -16,6 +16,7 @@ export interface Translations {
     priority:    string
     cdp:         string
     report:      string
+    team:        string
     exportData:  string
     signIn:      string
     signOut:     string

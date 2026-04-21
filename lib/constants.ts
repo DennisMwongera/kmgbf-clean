@@ -2,7 +2,7 @@
 
 export type Page =
   | 'dashboard' | 'profile' | 'core' | 'targets'
-  | 'gaps' | 'priority' | 'cdp' | 'report'
+  | 'gaps' | 'priority' | 'cdp' | 'report' | 'team'
 
 export interface InstitutionProfile {
   name: string; type: string; level: string; mandate: string
@@ -167,4 +167,5 @@ export const PAGE_TITLES: Record<Page, string> = {
   core: 'Core Capacity Assessment', targets: 'Target-Specific Assessment',
   gaps: 'Gap Analysis', priority: 'Prioritization',
   cdp: 'Capacity Development Plan', report: 'Reports & Analytics',
+  team: 'Team',
 }
