@@ -23,7 +23,7 @@ const fr: Translations = {
     signOut:     'Se déconnecter',
     institution: 'Institution',
     addInst:     '+ Ajouter une institution',
-    copyright:   'Convention sur la diversité biologique · © 2025 Outil EBC CMBM',
+    copyright:   'Convention sur la diversité biologique · © 2026 Outil EBC CMBM',
   },
 
   auth: {

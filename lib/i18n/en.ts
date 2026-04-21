@@ -23,7 +23,7 @@ const en: Translations = {
     signOut:     'Sign out',
     institution: 'Institution',
     addInst:     '+ Add Institution',
-    copyright:   'Convention on Biological Diversity · © 2025 KMGBF CNA Tool',
+    copyright:   'Convention on Biological Diversity · © 2026 KMGBF CNA Tool',
   },
 
   auth: {

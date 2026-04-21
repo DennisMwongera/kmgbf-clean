@@ -23,7 +23,7 @@ const pt: Translations = {
     signOut:     'Sair',
     institution: 'Instituição',
     addInst:     '+ Adicionar Instituição',
-    copyright:   'Convenção sobre Diversidade Biológica · © 2025 Ferramenta ANC QGBM',
+    copyright:   'Convenção sobre Diversidade Biológica · © 2026 Ferramenta ANC QGBM',
   },
 
   auth: {
