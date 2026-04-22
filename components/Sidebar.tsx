@@ -22,6 +22,7 @@ export default function Sidebar({ onExport }: Props) {
       { page: 'dashboard' as Page, icon: '📊', label: t.nav.dashboard },
       { page: 'profile'   as Page, icon: '🏛️', label: t.nav.profile   },
       { page: 'team'      as Page, icon: '👥', label: t.nav.team ?? 'Team'     },
+      ...(user?.role === 'institution_lead' || user?.role === 'admin' ? [{ page: 'myTargets' as Page, icon: '🎯', label: 'Our Targets' }] : []),
       { page: 'core'      as Page, icon: '🔍', label: t.nav.core      },
       { page: 'targets'   as Page, icon: '🎯', label: t.nav.targets   },
     ]},
@@ -36,11 +37,12 @@ export default function Sidebar({ onExport }: Props) {
   ]
 
   async function signOut() {
-  await supabase.auth.signOut()
-  localStorage.removeItem('kmgbf-v2')  // clears the Zustand persist cache
-  setUser(null)
-  window.location.href = '/auth'
-}
+    await supabase.auth.signOut()
+    // Clear locally cached assessment data so it doesn't leak to the next user
+    localStorage.removeItem('kmgbf-v2')
+    setUser(null)
+    window.location.href = '/auth'
+  }
 
   const rc = ROLE_STYLE[user?.role ?? 'viewer']
 

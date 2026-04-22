@@ -2,7 +2,7 @@
 
 export type Page =
   | 'dashboard' | 'profile' | 'core' | 'targets'
-  | 'gaps' | 'priority' | 'cdp' | 'report' | 'team'
+  | 'gaps' | 'priority' | 'cdp' | 'report' | 'team' | 'myTargets'
 
 export interface InstitutionProfile {
   name: string; type: string; level: string; mandate: string
@@ -168,4 +168,5 @@ export const PAGE_TITLES: Record<Page, string> = {
   gaps: 'Gap Analysis', priority: 'Prioritization',
   cdp: 'Capacity Development Plan', report: 'Reports & Analytics',
   team: 'Team',
+  myTargets: 'Our KMGBF Targets',
 }

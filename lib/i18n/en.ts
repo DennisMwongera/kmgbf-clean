@@ -19,6 +19,7 @@ const en: Translations = {
     cdp:         'Development Plan',
     report:      'Reports & Charts',
     team:        'Team',
+    myTargets:   'Our Targets',
     exportData:  'Export Data',
     signIn:      'Sign in to sync data',
     signOut:     'Sign out',

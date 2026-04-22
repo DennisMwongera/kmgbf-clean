@@ -15,6 +15,7 @@ import PriorityPage   from './pages/PriorityPage'
 import CdpPage        from './pages/CdpPage'
 import ReportPage     from './pages/ReportPage'
 import TeamPage       from './pages/TeamPage'
+import MyTargetsPage  from './pages/MyTargetsPage'
 
 const PAGES: Record<Page, React.ComponentType> = {
   dashboard: DashboardPage,
@@ -26,6 +27,7 @@ const PAGES: Record<Page, React.ComponentType> = {
   cdp:       CdpPage,
   report:    ReportPage,
   team:      TeamPage,
+  myTargets: MyTargetsPage,
 }
 
 export default function AppShell() {
