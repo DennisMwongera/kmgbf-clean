@@ -73,7 +73,8 @@ export default function AdminPage() {
         </div>
         <div className="flex gap-2">
           <Link href="/admin/institutions" className="btn btn-secondary">🏛️ Manage Institutions</Link>
-          <Link href="/admin/users"        className="btn btn-primary">👥 Manage Users</Link>
+          <Link href="/admin/users"        className="btn btn-secondary">👥 Manage Users</Link>
+          <Link href="/admin/reports"      className="btn btn-primary">📊 National Reports</Link>
         </div>
       </div>
 
