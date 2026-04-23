@@ -5,6 +5,7 @@ import { DIMENSIONS, KMGBF_TARGETS } from '@/lib/constants'
 import { getDimScores, getOverall, getTargetAvg, scoreColor, interpret } from '@/lib/utils'
 import { getT } from '@/lib/i18n'
 import { StatCard, ScoreBar, ScoreChip } from '@/components/ui'
+import { BarChart2, Radar, Target, AlertTriangle, CheckCircle2, TrendingUp, Activity } from 'lucide-react'
 import { Chart, RadarController, RadialLinearScale, PointElement, LineElement, Filler, Tooltip } from 'chart.js'
 
 Chart.register(RadarController, RadialLinearScale, PointElement, LineElement, Filler, Tooltip)

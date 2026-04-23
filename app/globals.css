@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Syne:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Syne:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -54,4 +54,215 @@ body { font-family: 'Syne', system-ui, sans-serif; background: #f6f3ee; color: #
 .fade-in { animation: fadeIn .2s ease forwards; }
 
 @keyframes slideUp { from { transform:translateY(10px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+.slide-up { animation: slideUp .25s ease forwards; } */
+
+
+/* ── Fonts ───────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens ───────────────────────────────────────────── */
+:root {
+  --sidebar-w:    256px;
+  --font-sans:    'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* Refined type scale */
+  --text-xs:   11px;
+  --text-sm:   12.5px;
+  --text-base: 13.5px;
+  --text-md:   15px;
+  --text-lg:   18px;
+  --text-xl:   22px;
+  --text-2xl:  28px;
+}
+
+/* ── Base ────────────────────────────────────────────────────── */
+html {
+  -webkit-font-smoothing:  antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering:          optimizeLegibility;
+}
+
+body {
+  font-family:    var(--font-sans);
+  font-size:      var(--text-base);
+  font-weight:    400;
+  line-height:    1.65;
+  letter-spacing: -0.01em;
+  background:     #f6f3ee;
+  color:          #131f18;
+}
+
+/* Headings use display font */
+h1, h2, h3, h4 {
+  font-family:    var(--font-display);
+  letter-spacing: -0.02em;
+  line-height:    1.15;
+  color:          #0f2d1c;
+}
+
+/* Better paragraph spacing */
+p { line-height: 1.7; }
+
+/* Inputs inherit the body font */
+input, textarea, select, button {
+  font-family: var(--font-sans);
+}
+
+/* Monospace for numbers/scores */
+code, pre, [data-mono] {
+  font-family: var(--font-mono);
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: #95d5b2; border-radius: 2px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Components ──────────────────────────────────────────────── */
+@layer components {
+
+  /* Cards */
+  .card {
+    @apply bg-white rounded-2xl p-6 border border-sand-300/60;
+    box-shadow: 0 2px 12px rgba(15,45,28,.08);
+  }
+  .card-title {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size:   14px;
+    letter-spacing: 0.01em;
+    @apply text-forest-700 mb-4 pb-3 border-b border-forest-100 flex items-center gap-2;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12.5px] font-semibold transition-all duration-150 cursor-pointer border-0 leading-none;
+    font-family:    var(--font-sans);
+    letter-spacing: 0.01em;
+  }
+  .btn-primary   { @apply bg-forest-600 text-white hover:bg-forest-700; }
+  .btn-secondary { @apply bg-sand-300 text-forest-700 hover:bg-sand-400; }
+  .btn-ghost     { @apply bg-transparent text-forest-500 border border-forest-200 hover:bg-forest-100; }
+  .btn-danger    { @apply bg-red-50 text-red-600 border border-red-200 hover:bg-red-100; }
+  .btn-sm        { @apply px-3 py-1.5 text-[11.5px]; }
+
+  /* Form inputs */
+  .form-input {
+    @apply w-full px-3 py-2.5 border border-sand-300 rounded-xl text-forest-700 bg-white outline-none transition-all;
+    font-family: var(--font-sans);
+    font-size:   13.5px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+  .form-input:focus { @apply border-forest-300 ring-2 ring-forest-200/40; }
+  .form-input::placeholder { color: #9ca3af; font-weight: 400; }
+
+  /* Table inputs */
+  .ti {
+    @apply w-full px-2 py-1.5 border border-sand-300 rounded-lg text-forest-700 bg-white outline-none transition-all;
+    font-family: var(--font-sans);
+    font-size:   12px;
+    line-height: 1.5;
+  }
+  .ti:focus { @apply border-forest-300 ring-1 ring-forest-200/40; }
+  .ti-score {
+    @apply ti text-center;
+    font-family: var(--font-mono);
+    width: 60px;
+  }
+
+  /* Data table (assessment forms) */
+  .dt           { @apply w-full border-collapse; font-size: 12.5px; }
+  .dt thead th  { @apply bg-forest-600 text-white px-3 py-2.5 text-left font-semibold; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .dt thead th:first-child { @apply rounded-tl-xl; }
+  .dt thead th:last-child  { @apply rounded-tr-xl; }
+  .dt td        { @apply px-3 py-2 border-b border-forest-50 align-middle; }
+  .dt tbody tr:last-child td { @apply border-0; }
+  .dt tbody tr:hover td      { @apply bg-forest-50/40; }
+  .dt .sr td    { @apply bg-forest-100/60 text-forest-600 font-semibold py-2; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; }
+
+  /* Report table */
+  .rt           { @apply w-full border-collapse; font-size: 12.5px; }
+  .rt thead th  { @apply bg-forest-600 text-white px-3 py-2.5 text-left font-semibold; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .rt td        { @apply px-3 py-2 border-b border-forest-50; line-height: 1.5; }
+  .rt tbody tr:nth-child(even) td { @apply bg-forest-50/30; }
+  .rt tbody tr:last-child td      { @apply border-0; }
+
+  /* Chip/badge */
+  .chip {
+    @apply inline-block px-2.5 py-0.5 rounded-full;
+    font-family: var(--font-sans);
+    font-size:   11px;
+    font-weight: 600;
+    line-height: 1.6;
+  }
+
+  /* Section action row */
+  .section-actions {
+    @apply flex items-center justify-between pt-5 mt-5 border-t border-forest-100;
+  }
+}
+
+/* ── Page heading helper ─────────────────────────────────────── */
+.page-heading {
+  font-family:    var(--font-display);
+  font-size:      var(--text-2xl);
+  font-weight:    700;
+  color:          #0f2d1c;
+  line-height:    1.1;
+  letter-spacing: -0.02em;
+}
+
+.page-subheading {
+  font-family: var(--font-sans);
+  font-size:   var(--text-base);
+  color:       #52796f;
+  margin-top:  6px;
+  line-height: 1.6;
+}
+
+/* ── Sidebar font overrides ──────────────────────────────────── */
+aside .nav-label {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size:   12.5px;
+}
+
+/* ── Admin panel ─────────────────────────────────────────────── */
+.admin-heading {
+  font-family:    var(--font-display);
+  font-size:      var(--text-2xl);
+  font-weight:    700;
+  color:          #0f2d1c;
+  letter-spacing: -0.02em;
+}
+
+/* ── Animations ──────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+.fade-in { animation: fadeIn .2s ease forwards; }
+
+@keyframes slideUp {
+  from { transform: translateY(10px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
 .slide-up { animation: slideUp .25s ease forwards; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Print ───────────────────────────────────────────────────── */
+@media print {
+  aside, header, .btn, .no-print { display: none !important; }
+  body { background: white; font-size: 11px; }
+  .card { box-shadow: none; border: 1px solid #e5e7eb; }
+}

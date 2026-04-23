@@ -61,14 +61,14 @@ export const DIMENSIONS = [
 export type Dimension = (typeof DIMENSIONS)[number]
 
 export const DEFAULT_REQUIRED: Record<Dimension, number> = {
-  'Policy and Legal Capacity':             4,
-  'Institutional Capacity':                4,
-  'Technical Capacity':                    3,
-  'Financial Capacity':                    3,
-  'Coordination and Governance':           4,
-  'Knowledge and Information Management':  3,
-  'Infrastructure and Equipment':          3,
-  'Awareness and Capacity Development':    3,
+  'Policy and Legal Capacity':             5,
+  'Institutional Capacity':                5,
+  'Technical Capacity':                    5,
+  'Financial Capacity':                    5,
+  'Coordination and Governance':           5,
+  'Knowledge and Information Management':  5,
+  'Infrastructure and Equipment':          5,
+  'Awareness and Capacity Development':    5,
 }
 
 // ─── Core Questions (50) ──────────────────────────────────────────────────────
