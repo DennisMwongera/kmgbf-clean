@@ -235,7 +235,7 @@ export default function ReportPage() {
                 <h3 style={{fontFamily:'var(--font-display)',fontSize:22,fontWeight:700,color:'#0f2d1c',marginBottom:4}}>KMGBF Capacity Assessment Summary</h3>
                 <p className="text-[13px] text-forest-400">{p.name||'—'} · {p.level||'—'} · {p.assessDate||'—'}</p>
               </div>
-              <button className="btn btn-ghost flex items-center gap-1.5" onClick={()=>window.print()}>
+              <button className="btn btn-ghost flex items-center gap-1.5" onClick={()=>setTimeout(()=>window.print(),50)}>
                 <Printer size={13}/> Print
               </button>
             </div>

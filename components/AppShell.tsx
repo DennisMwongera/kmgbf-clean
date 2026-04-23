@@ -156,7 +156,11 @@ function ExportModal({ onClose }: { onClose: () => void }) {
       ]), 'Development_Plan')
       XLSX.writeFile(wb, `KMGBF_CNA_${slug(assessment.profile.name)}.xlsx`)
     }
-    if (fmt === 'pdf') window.print()
+    if (fmt === 'pdf') {
+      onClose()                          // close modal first
+      setTimeout(() => window.print(), 300) // wait for modal to unmount
+      return
+    }
     onClose()
   }
 
