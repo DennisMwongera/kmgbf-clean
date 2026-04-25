@@ -6,10 +6,11 @@ import { Chart, RadarController, RadialLinearScale, PointElement, LineElement, F
          BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js'
 import Link from 'next/link'
 import { downloadCanvasAsImage, downloadCSV, downloadXLSX } from '@/lib/exportUtils'
+import { exportNationalPDF } from '@/lib/pdfExport'
 import ExportMenu from '@/components/ExportMenu'
 import {
   Globe, Radar, BarChart2, Target, Download, Loader2,
-  Building2, ClipboardList, TrendingUp, ArrowRight, ChevronRight
+  Building2, ClipboardList, TrendingUp, ArrowRight, ChevronRight, FileDown
 } from 'lucide-react'
 
 Chart.register(RadarController, RadialLinearScale, PointElement, LineElement, Filler,
@@ -158,7 +159,8 @@ export default function AdminReportsPage() {
   const [loading,   setLoading]   = useState(true)
   const [activeTab, setActiveTab] = useState<typeof TABS[number]['id']>('overview')
   const [selected,  setSelected]  = useState<InstitutionReport | null>(null)
-  const [exporting, setExporting] = useState(false)
+  const [exporting,    setExporting]    = useState(false)
+  const [pdfExporting, setPdfExporting] = useState(false)
   const nationalRadarRef = useRef<HTMLCanvasElement>(null)
   const multiBarRef      = useRef<HTMLCanvasElement>(null)
   const date             = new Date().toISOString().slice(0,10)
@@ -175,6 +177,13 @@ export default function AdminReportsPage() {
     setExporting(true)
     await exportNationalXLSX(national)
     setExporting(false)
+  }
+
+  async function handlePDFExport() {
+    if (!national) return
+    setPdfExporting(true)
+    await exportNationalPDF(national, nationalRadarRef.current, multiBarRef.current)
+    setPdfExporting(false)
   }
 
   if (loading) return (
@@ -194,7 +203,7 @@ export default function AdminReportsPage() {
   return (
     <div className="fade-in">
       {/* Header */}
-      <div className="flex items-start justify-between mb-7">
+      <div className="flex items-start justify-between mb-7 flex-wrap gap-4">
         <div>
           <h2 style={{ fontFamily:'var(--font-display)', fontSize:28, fontWeight:700, color:'#0f2d1c' }}>
             National Reports
@@ -203,11 +212,18 @@ export default function AdminReportsPage() {
             Aggregate capacity readiness across all {national.institutions.length} institutions.
           </p>
         </div>
-        <button className="btn btn-primary flex items-center gap-2" onClick={handleExport} disabled={exporting}>
-          {exporting
-            ? <><Loader2 size={13} className="animate-spin"/> Exporting…</>
-            : <><Download size={13}/> Export National Report (.xlsx)</>}
-        </button>
+        <div className="flex gap-2 flex-wrap shrink-0">
+          <button className="btn btn-secondary flex items-center gap-2" onClick={handleExport} disabled={exporting}>
+            {exporting
+              ? <><Loader2 size={13} className="animate-spin"/> Exporting…</>
+              : <><Download size={13}/> Export XLSX</>}
+          </button>
+          <button className="btn btn-primary flex items-center gap-2" onClick={handlePDFExport} disabled={pdfExporting}>
+            {pdfExporting
+              ? <><Loader2 size={13} className="animate-spin"/> Generating…</>
+              : <><FileDown size={13}/> Download PDF</>}
+          </button>
+        </div>
       </div>
 
       {/* Stat cards */}
@@ -279,8 +295,8 @@ export default function AdminReportsPage() {
                 {withoutData.length > 0 && <span className="text-[11px] text-forest-400">{withoutData.length} with no assessment yet</span>}
               </div>
             </div>
-            <div className="rounded-xl overflow-hidden border border-sand-300">
-              <table className="rt w-full">
+            <div className="overflow-x-auto rounded-xl border border-sand-300">
+              <table className="rt" style={{ minWidth:900 }}>
                 <thead>
                   <tr>
                     <th>Institution</th><th>Type</th><th>Overall</th>
@@ -440,8 +456,8 @@ export default function AdminReportsPage() {
               { label:'XLSX data', icon:'📊', action:()=> downloadXLSX([{name:'Target Readiness',rows:[['Target','Title','National Avg',...withData.map(r=>r.institution.name)],...KMGBF_TARGETS.map(t=>[`T${t.num}`,t.title,national!.nationalTargets[t.num]?.toFixed(2)??'',...withData.map(r=>r.targetScores[t.num]?.toFixed(2)??'')])]}], `National_Targets_${date}`) },
             ]}/>
           </SectionHeader>
-          <div className="rounded-xl overflow-hidden border border-sand-300 mt-3">
-            <table className="rt w-full">
+          <div className="overflow-x-auto rounded-xl border border-sand-300 mt-3">
+            <table className="rt" style={{ minWidth: Math.max(600, withData.length * 120 + 300) }}>
               <thead>
                 <tr>
                   <th style={{ width:40 }}>#</th><th>Target</th><th>National Avg</th>
