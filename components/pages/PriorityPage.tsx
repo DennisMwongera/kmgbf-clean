@@ -1,6 +1,6 @@
 'use client'
 import { useStore } from '@/lib/store'
-import { gapItems } from '@/lib/utils'
+import { gapItems, getDimScores } from '@/lib/utils'
 import { getT } from '@/lib/i18n'
 import { SectionActions } from '@/components/ui'
 
@@ -18,10 +18,25 @@ export default function PriorityPage() {
   const t                = getT(lang ?? 'en')
 
   const items = gapItems(assessment)
+  const dimScores = getDimScores(assessment)
+
   const rows = items.map((item, i) => {
-    const r = assessment.priorityRows[i] ?? { capacityGap:item.label, urgency:3, impact:3, feasibility:3 }
-    return { ...item, ...r, score: (r.urgency * r.impact * r.feasibility) / 5 }
-  }).sort((a,b) => b.score - a.score)
+    const r        = assessment.priorityRows[i] ?? { capacityGap:item.label, urgency:3, impact:3, feasibility:3 }
+    const dimScore = dimScores[item.dim] ?? null
+    const required = assessment.required[item.dim] ?? 3
+    const gap      = dimScore !== null ? required - dimScore : 0   // bigger = worse
+    const pScore   = (r.urgency * r.impact * r.feasibility) / 5
+    return { ...item, ...r, score: pScore, dimScore, gap }
+  }).sort((a, b) => {
+    // 1st: highest gap (most behind on required score)
+    if (b.gap !== a.gap) return b.gap - a.gap
+    // 2nd: lowest dimension score (weakest capacity first)
+    const aS = a.dimScore ?? 5
+    const bS = b.dimScore ?? 5
+    if (aS !== bS) return aS - bS
+    // 3rd: highest priority score as tiebreaker
+    return b.score - a.score
+  })
 
   const Num = ({ i, field, val }: { i:number; field:'urgency'|'impact'|'feasibility'; val:number }) => (
     <input className="ti-score" style={{width:52}} type="number" min={1} max={5} step={1} value={val}
@@ -40,8 +55,10 @@ export default function PriorityPage() {
             <table className="dt w-full">
               <thead>
                 <tr>
-                  <th style={{width:'30%'}}>{t.priority.capacityGap}</th>
+                  <th style={{width:'26%'}}>{t.priority.capacityGap}</th>
                   <th>{t.priority.dimension}</th>
+                  <th style={{width:'7%'}}>Score</th>
+                  <th style={{width:'7%'}}>Gap</th>
                   <th>{t.priority.urgency}</th>
                   <th>{t.priority.impact}</th>
                   <th>{t.priority.feasibility}</th>
@@ -56,6 +73,16 @@ export default function PriorityPage() {
                     <tr key={row.label}>
                       <td className="font-semibold text-[12.5px]">{row.label}</td>
                       <td><span className="chip" style={{background:'#d8f3dc',color:'#2d6a4f',fontSize:10}}>{row.dim.length>20?row.dim.slice(0,18)+'…':row.dim}</span></td>
+                      <td>
+                        <span className="text-[12px] font-bold" style={{fontFamily:'var(--font-mono)',color:row.dimScore!==null?row.dimScore<2?'#dc2626':row.dimScore<3?'#ca8a04':'#15803d':'#9ca3af'}}>
+                          {row.dimScore?.toFixed(1)??'—'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="text-[12px] font-bold" style={{fontFamily:'var(--font-mono)',color:row.gap>0?'#dc2626':'#15803d'}}>
+                          {row.gap>0?`-${row.gap.toFixed(1)}`:'✓'}
+                        </span>
+                      </td>
                       <td><Num i={origIdx} field="urgency"     val={row.urgency}/></td>
                       <td><Num i={origIdx} field="impact"      val={row.impact}/></td>
                       <td><Num i={origIdx} field="feasibility" val={row.feasibility}/></td>
