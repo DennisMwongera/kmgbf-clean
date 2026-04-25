@@ -114,51 +114,207 @@ function ExportModal({ onClose }: { onClose: () => void }) {
   const { assessment } = useStore()
 
   async function doExport(fmt: string) {
+    const { getDimScores, getTargetAvg, interpret } = await import('@/lib/utils')
+    const { DIMENSIONS, CORE_QUESTIONS, KMGBF_TARGETS } = await import('@/lib/constants')
+    const scores   = getDimScores(assessment)
+    const p        = assessment.profile
+    const instName = slug(p.name)
+    const date     = new Date().toISOString().slice(0,10)
+
     if (fmt === 'json') {
       const blob = new Blob([JSON.stringify(assessment, null, 2)], { type: 'application/json' })
-      dl(blob, `KMGBF_CNA_${slug(assessment.profile.name)}.json`)
+      dl(blob, `KMGBF_CNA_${instName}.json`)
     }
+
     if (fmt === 'csv') {
-      const { getDimScores, interpret } = await import('@/lib/utils')
-      const { DIMENSIONS } = await import('@/lib/constants')
-      const scores = getDimScores(assessment)
-      const rows = [['Dimension','Score','Required','Gap','Interpretation']]
-      DIMENSIONS.forEach(d => {
-        const s = scores[d]
-        rows.push([d, s != null ? s.toFixed(2) : '', String(assessment.required[d]),
-          s != null ? (s - assessment.required[d]).toFixed(2) : '', interpret(s)])
+      // CSV exports all tabs as separate downloads (one per sheet)
+      const csvRows = (rows: any[][]) =>
+        rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g,'""')}"`).join(',')).join('\n')
+
+      // Sheet 1: Profile
+      dl(new Blob([csvRows([
+        ['Field','Value'],
+        ['Institution Name', p.name], ['Type', p.type], ['Level', p.level],
+        ['Geographic Scope', p.scope], ['Biodiversity Mandate', p.mandate],
+        ['Focal Point Name', p.focalName], ['Focal Point Title', p.focalTitle],
+        ['Focal Point Email', p.focalEmail], ['Assessment Date', p.assessDate],
+      ])], { type:'text/csv' }), `${instName}_1_Profile_${date}.csv`)
+
+      // Sheet 2: Core Assessment (all 50)
+      dl(new Blob([csvRows([
+        ['#','Section','Indicator','Score','Evidence','Gap Identified','Capacity Type','Priority','Suggested Support'],
+        ...assessment.coreRows.map((r,i) => [
+          i+1, CORE_QUESTIONS[i].section, CORE_QUESTIONS[i].q,
+          r.score??'', r.evidence??'', r.gap??'',
+          r.capacityType??'', r.priority??'', r.suggestedSupport??'',
+        ]),
+      ])], { type:'text/csv' }), `${instName}_2_CoreAssessment_${date}.csv`)
+
+      // Sheet 3: Target Assessment (all 23 × indicators)
+      const targetRows: any[][] = [['Target #','Target Title','Indicator #','Indicator','Score','Evidence','Gap Identified','Capacity Need']]
+      KMGBF_TARGETS.forEach(t => {
+        t.indicators.forEach((ind, i) => {
+          const r = assessment.targetRows[`t${t.num}_${i}`]
+          targetRows.push([t.num, t.title, i+1, ind, r?.score??'', r?.evidence??'', r?.gapIdentified??'', r?.capacityNeed??''])
+        })
       })
-      dl(new Blob([rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n')], { type:'text/csv' }),
-        `KMGBF_CNA_${slug(assessment.profile.name)}.csv`)
+      dl(new Blob([csvRows(targetRows)], { type:'text/csv' }), `${instName}_3_TargetAssessment_${date}.csv`)
+
+      // Sheet 4: Gap Analysis
+      dl(new Blob([csvRows([
+        ['Dimension','Current Score','Required Score','Gap','Priority','Interpretation'],
+        ...DIMENSIONS.map(d => {
+          const s = scores[d]; const req = assessment.required[d]; const gap = s !== null ? s - req : null
+          return [d, s?.toFixed(2)??'', req, gap?.toFixed(2)??'', gap!==null&&gap<0?'Gap':'Met', interpret(s)]
+        }),
+      ])], { type:'text/csv' }), `${instName}_4_GapAnalysis_${date}.csv`)
+
+      // Sheet 5: Prioritization
+      dl(new Blob([csvRows([
+        ['Capacity Gap','Dimension','Urgency','Impact','Feasibility','Priority Score'],
+        ...assessment.priorityRows.map(r => [
+          r.capacityGap, '', r.urgency, r.impact, r.feasibility,
+          ((r.urgency * r.impact * r.feasibility) / 5).toFixed(1),
+        ]),
+      ])], { type:'text/csv' }), `${instName}_5_Prioritization_${date}.csv`)
+
+      // Sheet 6: Capacity Development Plan
+      dl(new Blob([csvRows([
+        ['Capacity Gap','Recommended Action','Responsible Institution','Timeline','Budget (USD)','Progress Indicator','Collaboration'],
+        ...assessment.cdpRows.map(r => [r.capacityGap, r.action, r.institution, r.timeline, r.budget, r.indicator, r.collaboration]),
+      ])], { type:'text/csv' }), `${instName}_6_DevelopmentPlan_${date}.csv`)
     }
+
     if (fmt === 'xlsx') {
       const XLSX = await import('xlsx')
-      const { getDimScores } = await import('@/lib/utils')
-      const { DIMENSIONS, CORE_QUESTIONS } = await import('@/lib/constants')
-      const wb = XLSX.utils.book_new()
-      const scores = getDimScores(assessment)
+      const wb   = XLSX.utils.book_new()
+
+      // ── Sheet 1: Institutional Profile ─────────────────────
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ['Institution', assessment.profile.name],
-        ['Level', assessment.profile.level],
-        ['Date', assessment.profile.assessDate],
-      ]), 'Profile')
+        ['KMGBF Capacity Needs Assessment'],
+        ['Institutional Profile'],
+        [],
+        ['Field', 'Value'],
+        ['Institution Name',    p.name       ?? ''],
+        ['Type',               p.type        ?? ''],
+        ['Level',              p.level       ?? ''],
+        ['Geographic Scope',   p.scope       ?? ''],
+        ['Biodiversity Mandate', p.mandate   ?? ''],
+        [],
+        ['Contact Details'],
+        ['Focal Point Name',   p.focalName   ?? ''],
+        ['Focal Point Title',  p.focalTitle  ?? ''],
+        ['Focal Point Email',  p.focalEmail  ?? ''],
+        ['Assessment Date',    p.assessDate  ?? ''],
+      ]), 'Institutional_Profile')
+
+      // ── Sheet 2: Core Capacity Assessment (all 50) ─────────
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ['Section','Question','Score','Evidence','Gap','Capacity Type','Priority','Suggested Support'],
-        ...assessment.coreRows.map((r,i) => [CORE_QUESTIONS[i].section, CORE_QUESTIONS[i].q, r.score??'', r.evidence, r.gap, r.capacityType, r.priority, r.suggestedSupport])
+        ['Core Capacity Assessment — 50 Indicators across 8 Dimensions'],
+        [],
+        ['#', 'Dimension', 'Capacity Indicator', 'Score (0–5)', 'Evidence', 'Gap Identified', 'Capacity Type', 'Priority', 'Suggested Support'],
+        ...assessment.coreRows.map((r, i) => [
+          i + 1,
+          CORE_QUESTIONS[i].section,
+          CORE_QUESTIONS[i].q,
+          r.score ?? '',
+          r.evidence         ?? '',
+          r.gap              ?? '',
+          r.capacityType     ?? '',
+          r.priority         ?? '',
+          r.suggestedSupport ?? '',
+        ]),
       ]), 'Core_Assessment')
+
+      // ── Sheet 3: Target-Specific Assessment (all 23 × indicators) ──
+      const targetData: any[][] = [
+        ['KMGBF Target-Specific Assessment — 23 Targets'],
+        [],
+        ['Target #', 'Target Title', 'Target Description', 'Indicator #', 'Capacity Indicator', 'Score (0–5)', 'Evidence', 'Gap Identified', 'Capacity Need'],
+      ]
+      KMGBF_TARGETS.forEach(t => {
+        t.indicators.forEach((ind, i) => {
+          const r = assessment.targetRows[`t${t.num}_${i}`]
+          targetData.push([
+            t.num, t.title,
+            i === 0 ? t.desc : '',   // only show desc on first indicator row
+            i + 1, ind,
+            r?.score        ?? '',
+            r?.evidence     ?? '',
+            r?.gapIdentified ?? '',
+            r?.capacityNeed  ?? '',
+          ])
+        })
+      })
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(targetData), 'Target_Assessment')
+
+      // ── Sheet 4: Gap Analysis ───────────────────────────────
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ['Dimension','Score','Required','Gap'],
-        ...DIMENSIONS.map(d => { const s=scores[d]; return [d, s??'', assessment.required[d], s!=null?(s-assessment.required[d]).toFixed(2):'']; })
+        ['Capacity Gap Analysis'],
+        [],
+        ['Dimension / Capacity Area', 'Current Score', 'Required Score', 'Gap', 'Status', 'Interpretation'],
+        ...DIMENSIONS.map(d => {
+          const s = scores[d]; const req = assessment.required[d]
+          const gap = s !== null ? s - req : null
+          return [
+            d,
+            s?.toFixed(2) ?? 'Not scored',
+            req,
+            gap?.toFixed(2) ?? '',
+            gap === null ? 'Not scored' : gap >= 0 ? 'Met' : 'Gap',
+            interpret(s),
+          ]
+        }),
+        [],
+        ['Overall Score', getDimScores(assessment) ? Object.values(scores).filter(v=>v!==null).length > 0 ? (Object.values(scores).filter(v=>v!==null) as number[]).reduce((a,b)=>a+b,0) / Object.values(scores).filter(v=>v!==null).length : '' : ''],
       ]), 'Gap_Analysis')
+
+      // ── Sheet 5: Prioritization ─────────────────────────────
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ['Capacity Gap','Action','Institution','Timeline','Budget','Indicator','Collaboration'],
-        ...assessment.cdpRows.map(r => [r.capacityGap,r.action,r.institution,r.timeline,r.budget,r.indicator,r.collaboration])
+        ['Capacity Needs Prioritization'],
+        ['Priority Score = (Urgency × Impact × Feasibility) / 5'],
+        [],
+        ['Capacity Gap', 'Urgency (1–5)', 'Impact (1–5)', 'Feasibility (1–5)', 'Priority Score', 'Priority Level'],
+        ...assessment.priorityRows
+          .map(r => ({
+            ...r,
+            score: (r.urgency * r.impact * r.feasibility) / 5,
+          }))
+          .sort((a, b) => b.score - a.score)
+          .map((r, rank) => [
+            r.capacityGap,
+            r.urgency,
+            r.impact,
+            r.feasibility,
+            r.score.toFixed(1),
+            r.score >= 10 ? 'High' : r.score >= 5 ? 'Medium' : 'Low',
+          ]),
+      ]), 'Prioritization')
+
+      // ── Sheet 6: Capacity Development Plan ─────────────────
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['Capacity Development Plan'],
+        [],
+        ['Capacity Gap', 'Recommended Action', 'Responsible Institution', 'Timeline', 'Budget (USD)', 'Progress Indicator', 'Collaboration Opportunities'],
+        ...assessment.cdpRows
+          .filter(r => r.capacityGap || r.action)
+          .map(r => [
+            r.capacityGap,
+            r.action,
+            r.institution,
+            r.timeline,
+            r.budget,
+            r.indicator,
+            r.collaboration,
+          ]),
       ]), 'Development_Plan')
-      XLSX.writeFile(wb, `KMGBF_CNA_${slug(assessment.profile.name)}.xlsx`)
+
+      XLSX.writeFile(wb, `KMGBF_CNA_${instName}_${date}.xlsx`)
     }
+
     if (fmt === 'pdf') {
-      onClose()                          // close modal first
-      setTimeout(() => window.print(), 300) // wait for modal to unmount
+      onClose()
+      setTimeout(() => window.print(), 300)
       return
     }
     onClose()
