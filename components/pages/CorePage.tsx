@@ -1,3 +1,146 @@
+// 'use client'
+// import { useState, useCallback, memo } from 'react'
+// import { useStore } from '@/lib/store'
+// import { type CoreRow } from '@/lib/constants'
+// import { groupedQuestions, scoreColor, defaultCapacityType } from '@/lib/utils'
+// import { getT } from '@/lib/i18n'
+// import { SectionActions } from '@/components/ui'
+// import ReadOnlyBanner from '@/components/ReadOnlyBanner'
+
+// const CoreRowInputs = memo(function CoreRowInputs({ idx, question, section, initialRow, onUpdate, t, readOnly }: {
+//   idx: number; question: string; section: string; initialRow: CoreRow; t: ReturnType<typeof getT>
+//   onUpdate: (idx: number, field: string, val: string | number | null) => void
+//   readOnly?: boolean
+// }) {
+//   const [score, setScore] = useState(initialRow.score !== null && !isNaN(initialRow.score as number) ? String(initialRow.score) : '')
+//   const [evid, setEvid] = useState(initialRow.evidence)
+//   const [gap, setGap] = useState(initialRow.gap)
+//   const [support, setSupport] = useState(initialRow.suggestedSupport)
+
+//   // Use stored value OR fall back to the dimension default
+//   const effectiveCapacityType = initialRow.capacityType || defaultCapacityType(section)
+
+//   function flushScore(val: string) {
+//     if (val === '') { onUpdate(idx, 'score', null); return }
+//     const n = parseInt(val, 10)
+//     if (!isNaN(n)) onUpdate(idx, 'score', Math.min(5, Math.max(0, n)))
+//   }
+
+//   const sc = initialRow.score
+//   return (
+//     <tr>
+//       <td className="text-[12px] leading-snug align-top pt-2.5">{question}</td>
+//       <td>
+//         <input className="ti-score" type="number" min={0} max={5} step={1}
+//           value={score}
+//           onChange={e => { if (!readOnly) setScore(e.target.value) }}
+//           onBlur={e => { if (!readOnly) flushScore(e.target.value) }}
+//           placeholder="0–5"
+//           disabled={readOnly}
+//           style={sc !== null ? { borderColor: scoreColor(sc), color: scoreColor(sc) } : {}} />
+//       </td>
+//       <td><textarea className="ti" rows={2} style={{ resize: 'none' }} value={evid} onChange={e => setEvid(e.target.value)} onBlur={e => onUpdate(idx, 'evidence', e.target.value)} placeholder={t.common.evidence} disabled={readOnly} /></td>
+//       <td><textarea className="ti" rows={2} style={{ resize: 'none' }} value={gap} onChange={e => setGap(e.target.value)} onBlur={e => onUpdate(idx, 'gap', e.target.value)} placeholder={t.common.gap} disabled={readOnly} /></td>
+//       <td>
+//         {/* ── Type — prefilled from dimension, user can override ── */}
+//         {/* <select className="ti" style={{appearance:'none',cursor: readOnly ? 'default' : 'pointer'}}
+//           value={effectiveCapacityType}
+//           disabled={readOnly}
+//           onChange={e => onUpdate(idx,'capacityType',e.target.value)}>
+//           {t.core.capacityTypes.map((tp, i) => (
+//             <option key={i} value={tp}>{tp || t.common.selectDots}</option>
+//           ))}
+//         </select> */}
+//         <span style={{ background: '#d8f3dc', color: '#1b4332' }}>
+//           {effectiveCapacityType || '—'}
+//         </span>
+//       </td>
+//       <td>
+//         <select className="ti" style={{ appearance: 'none', cursor: readOnly ? 'default' : 'pointer' }}
+//           value={initialRow.priority}
+//           disabled={readOnly}
+//           onChange={e => onUpdate(idx, 'priority', e.target.value)}>
+//           {t.core.priorities.map((pr, i) => (
+//             <option key={i} value={pr} style={{ background: 'white', color: '#131f18' }}>{pr || t.common.selectDots}</option>
+//           ))}
+//         </select>
+//       </td>
+//       <td><textarea className="ti" rows={2} style={{ resize: 'none' }} value={support} onChange={e => setSupport(e.target.value)} onBlur={e => onUpdate(idx, 'suggestedSupport', e.target.value)} placeholder={t.common.suggestedSupport} disabled={readOnly} /></td>
+//     </tr>
+//   )
+// })
+
+// export default function CorePage() {
+//   const coreRows = useStore(s => s.assessment.coreRows)
+//   const updateCoreRow = useStore(s => s.updateCoreRow)
+//   const navigate = useStore(s => s.navigate)
+//   const lang = useStore(s => s.lang)
+//   const isReadOnly = useStore(s => s.isReadOnly())
+//   const t = getT(lang ?? 'en')
+//   const grouped = groupedQuestions()
+
+//   const handleUpdate = useCallback((idx: number, field: string, val: string | number | null) => {
+//     updateCoreRow(idx, field, val)
+//   }, [updateCoreRow])
+
+//   return (
+//     <div className="fade-in">
+//       <div className="mb-6">
+//         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: '#0f2d1c', lineHeight: 1.1 }}>{t.core.title}</h2>
+//         <p className="text-[13.5px] text-forest-400 mt-1.5">{t.core.desc}</p>
+//       </div>
+//       <ReadOnlyBanner />
+//       <div className="flex flex-wrap gap-3 mb-4">
+//         {t.core.scale.map(({ s, l }) => (
+//           <div key={s} className="flex items-center gap-1.5 text-[11px] text-forest-400">
+//             <div className="w-2 h-2 rounded-full shrink-0" style={{ background: ['#dc2626', '#c2410c', '#a16207', '#15803d', '#047857', '#065f46'][s] }} />{s} = {l}
+//           </div>
+//         ))}
+//       </div>
+//       <div className="rounded-2xl overflow-hidden border border-sand-300">
+//         <table className="dt w-full">
+//           <thead>
+//             <tr>
+//               <th style={{ width: '22%' }}>{t.core.title.split(' ')[0]}</th>
+//               <th style={{ width: '7%' }}>{t.common.score}</th>
+//               <th style={{ width: '16%' }}>{t.common.evidence}</th>
+//               <th style={{ width: '15%' }}>{t.common.gap}</th>
+//               <th style={{ width: '13%' }}>{t.common.type}</th>
+//               <th style={{ width: '9%' }}>{t.common.priority}</th>
+//               <th style={{ width: '18%' }}>{t.common.suggestedSupport}</th>
+//             </tr>
+//           </thead>
+//           <tbody>
+//             {Object.entries(grouped).map(([enSection, qs], sIdx) => (
+//               <>
+//                 <tr key={`sec-${enSection}`} className="sr">
+//                   <td colSpan={7}>{t.core.sections[sIdx] || enSection}</td>
+//                 </tr>
+//                 {(qs as { idx: number }[]).map(({ idx }) => (
+//                   <CoreRowInputs
+//                     key={idx}
+//                     idx={idx}
+//                     question={t.core.questions[idx] || ''}
+//                     section={enSection}
+//                     initialRow={coreRows[idx]}
+//                     onUpdate={handleUpdate}
+//                     readOnly={isReadOnly}
+//                     t={t}
+//                   />
+//                 ))}
+//               </>
+//             ))}
+//           </tbody>
+//         </table>
+//       </div>
+//       <SectionActions>
+//         <button className="btn btn-secondary" onClick={() => navigate('profile')}>{t.common.back}</button>
+//         <button className="btn btn-primary" onClick={() => navigate('targets')}>{t.common.saveAndContinue}</button>
+//       </SectionActions>
+//     </div>
+//   )
+// }
+
 'use client'
 import { useState, useCallback, memo } from 'react'
 import { useStore } from '@/lib/store'
@@ -12,13 +155,14 @@ const CoreRowInputs = memo(function CoreRowInputs({ idx, question, section, init
   onUpdate: (idx: number, field: string, val: string | number | null) => void
   readOnly?: boolean
 }) {
-  const [score, setScore] = useState(initialRow.score !== null && !isNaN(initialRow.score as number) ? String(initialRow.score) : '')
-  const [evid, setEvid] = useState(initialRow.evidence)
-  const [gap, setGap] = useState(initialRow.gap)
+  const [score,   setScore]   = useState(initialRow.score !== null && !isNaN(initialRow.score as number) ? String(initialRow.score) : '')
+  const [evid,    setEvid]    = useState(initialRow.evidence)
+  const [gap,     setGap]     = useState(initialRow.gap)
   const [support, setSupport] = useState(initialRow.suggestedSupport)
 
-  // Use stored value OR fall back to the dimension default
-  const effectiveCapacityType = initialRow.capacityType || defaultCapacityType(section)
+  // Always derive from section — override stale stored values for renamed types
+  // Always derive from section — never trust stored value which may be stale
+  const effectiveCapacityType = defaultCapacityType(section) || '—'
 
   function flushScore(val: string) {
     if (val === '') { onUpdate(idx, 'score', null); return }
@@ -34,50 +178,43 @@ const CoreRowInputs = memo(function CoreRowInputs({ idx, question, section, init
         <input className="ti-score" type="number" min={0} max={5} step={1}
           value={score}
           onChange={e => { if (!readOnly) setScore(e.target.value) }}
-          onBlur={e => { if (!readOnly) flushScore(e.target.value) }}
+          onBlur={e  => { if (!readOnly) flushScore(e.target.value) }}
           placeholder="0–5"
           disabled={readOnly}
-          style={sc !== null ? { borderColor: scoreColor(sc), color: scoreColor(sc) } : {}} />
+          style={sc !== null ? { borderColor:scoreColor(sc), color:scoreColor(sc) } : {}}/>
       </td>
-      <td><textarea className="ti" rows={2} style={{ resize: 'none' }} value={evid} onChange={e => setEvid(e.target.value)} onBlur={e => onUpdate(idx, 'evidence', e.target.value)} placeholder={t.common.evidence} disabled={readOnly} /></td>
-      <td><textarea className="ti" rows={2} style={{ resize: 'none' }} value={gap} onChange={e => setGap(e.target.value)} onBlur={e => onUpdate(idx, 'gap', e.target.value)} placeholder={t.common.gap} disabled={readOnly} /></td>
+      <td><textarea className="ti" rows={2} style={{resize:'none'}} value={evid}    onChange={e => setEvid(e.target.value)}    onBlur={e => onUpdate(idx,'evidence',e.target.value)}         placeholder={t.common.evidence}        disabled={readOnly}/></td>
+      <td><textarea className="ti" rows={2} style={{resize:'none'}} value={gap}     onChange={e => setGap(e.target.value)}     onBlur={e => onUpdate(idx,'gap',e.target.value)}              placeholder={t.common.gap}             disabled={readOnly}/></td>
       <td>
-        {/* ── Type — prefilled from dimension, user can override ── */}
-        {/* <select className="ti" style={{appearance:'none',cursor: readOnly ? 'default' : 'pointer'}}
-          value={effectiveCapacityType}
-          disabled={readOnly}
-          onChange={e => onUpdate(idx,'capacityType',e.target.value)}>
-          {t.core.capacityTypes.map((tp, i) => (
-            <option key={i} value={tp}>{tp || t.common.selectDots}</option>
-          ))}
-        </select> */}
-        <span style={{ background: '#d8f3dc', color: '#1b4332' }}>
+        {/* ── Type — read-only badge derived from dimension ── */}
+        <span className="inline-block px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+          style={{ background:'#d8f3dc', color:'#1b4332', whiteSpace:'nowrap' }}>
           {effectiveCapacityType || '—'}
         </span>
       </td>
       <td>
-        <select className="ti" style={{ appearance: 'none', cursor: readOnly ? 'default' : 'pointer' }}
+        <select className="ti" style={{appearance:'none',cursor: readOnly ? 'default' : 'pointer'}}
           value={initialRow.priority}
           disabled={readOnly}
-          onChange={e => onUpdate(idx, 'priority', e.target.value)}>
+          onChange={e => onUpdate(idx,'priority',e.target.value)}>
           {t.core.priorities.map((pr, i) => (
-            <option key={i} value={pr} style={{ background: 'white', color: '#131f18' }}>{pr || t.common.selectDots}</option>
+            <option key={i} value={pr} style={{background:'white',color:'#131f18'}}>{pr || t.common.selectDots}</option>
           ))}
         </select>
       </td>
-      <td><textarea className="ti" rows={2} style={{ resize: 'none' }} value={support} onChange={e => setSupport(e.target.value)} onBlur={e => onUpdate(idx, 'suggestedSupport', e.target.value)} placeholder={t.common.suggestedSupport} disabled={readOnly} /></td>
+      <td><textarea className="ti" rows={2} style={{resize:'none'}} value={support} onChange={e => setSupport(e.target.value)} onBlur={e => onUpdate(idx,'suggestedSupport',e.target.value)} placeholder={t.common.suggestedSupport} disabled={readOnly}/></td>
     </tr>
   )
 })
 
 export default function CorePage() {
-  const coreRows = useStore(s => s.assessment.coreRows)
+  const coreRows      = useStore(s => s.assessment.coreRows)
   const updateCoreRow = useStore(s => s.updateCoreRow)
-  const navigate = useStore(s => s.navigate)
-  const lang = useStore(s => s.lang)
-  const isReadOnly = useStore(s => s.isReadOnly())
-  const t = getT(lang ?? 'en')
-  const grouped = groupedQuestions()
+  const navigate      = useStore(s => s.navigate)
+  const lang          = useStore(s => s.lang)
+  const isReadOnly    = useStore(s => s.isReadOnly())
+  const t             = getT(lang ?? 'en')
+  const grouped       = groupedQuestions()
 
   const handleUpdate = useCallback((idx: number, field: string, val: string | number | null) => {
     updateCoreRow(idx, field, val)
@@ -86,14 +223,14 @@ export default function CorePage() {
   return (
     <div className="fade-in">
       <div className="mb-6">
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: '#0f2d1c', lineHeight: 1.1 }}>{t.core.title}</h2>
+        <h2 style={{ fontFamily:'var(--font-display)', fontSize:28, fontWeight:700, color:'#0f2d1c', lineHeight:1.1 }}>{t.core.title}</h2>
         <p className="text-[13.5px] text-forest-400 mt-1.5">{t.core.desc}</p>
       </div>
-      <ReadOnlyBanner />
+      <ReadOnlyBanner/>
       <div className="flex flex-wrap gap-3 mb-4">
         {t.core.scale.map(({ s, l }) => (
           <div key={s} className="flex items-center gap-1.5 text-[11px] text-forest-400">
-            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: ['#dc2626', '#c2410c', '#a16207', '#15803d', '#047857', '#065f46'][s] }} />{s} = {l}
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: ['#dc2626','#c2410c','#a16207','#15803d','#047857','#065f46'][s] }}/>{s} = {l}
           </div>
         ))}
       </div>
@@ -101,13 +238,13 @@ export default function CorePage() {
         <table className="dt w-full">
           <thead>
             <tr>
-              <th style={{ width: '22%' }}>{t.core.title.split(' ')[0]}</th>
-              <th style={{ width: '7%' }}>{t.common.score}</th>
-              <th style={{ width: '16%' }}>{t.common.evidence}</th>
-              <th style={{ width: '15%' }}>{t.common.gap}</th>
-              <th style={{ width: '13%' }}>{t.common.type}</th>
-              <th style={{ width: '9%' }}>{t.common.priority}</th>
-              <th style={{ width: '18%' }}>{t.common.suggestedSupport}</th>
+              <th style={{width:'22%'}}>{t.core.title.split(' ')[0]}</th>
+              <th style={{width:'7%'}}>{t.common.score}</th>
+              <th style={{width:'16%'}}>{t.common.evidence}</th>
+              <th style={{width:'15%'}}>{t.common.gap}</th>
+              <th style={{width:'13%'}}>{t.common.type}</th>
+              <th style={{width:'9%'}}>{t.common.priority}</th>
+              <th style={{width:'18%'}}>{t.common.suggestedSupport}</th>
             </tr>
           </thead>
           <tbody>
@@ -116,7 +253,7 @@ export default function CorePage() {
                 <tr key={`sec-${enSection}`} className="sr">
                   <td colSpan={7}>{t.core.sections[sIdx] || enSection}</td>
                 </tr>
-                {(qs as { idx: number }[]).map(({ idx }) => (
+                {(qs as {idx: number}[]).map(({ idx }) => (
                   <CoreRowInputs
                     key={idx}
                     idx={idx}
@@ -135,7 +272,7 @@ export default function CorePage() {
       </div>
       <SectionActions>
         <button className="btn btn-secondary" onClick={() => navigate('profile')}>{t.common.back}</button>
-        <button className="btn btn-primary" onClick={() => navigate('targets')}>{t.common.saveAndContinue}</button>
+        <button className="btn btn-primary"   onClick={() => navigate('targets')}>{t.common.saveAndContinue}</button>
       </SectionActions>
     </div>
   )
