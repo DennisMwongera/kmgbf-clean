@@ -21,7 +21,7 @@ function HBarChart({ scores, canvasRef }: { scores: Record<string, number | null
     if (!ref.current) return; ch.current?.destroy()
     ch.current = new Chart(ref.current, {
       type: 'bar',
-      data: { labels: DIMENSIONS.map(d => d.length > 22 ? d.slice(0,20)+'…' : d), datasets: [{ data: DIMENSIONS.map(d => scores[d] ?? 0), backgroundColor: DIMENSIONS.map(d => scoreColor(scores[d])), borderRadius: 5 }] },
+      data: { labels: DIMENSIONS.map(d => d.length > 22 ? d.slice(0,20)+'…' : d), datasets: [{ data: DIMENSIONS.map(d => { const v=scores[d]; return (v!==null&&v!==-1) ? v : 0 }), backgroundColor: DIMENSIONS.map(d => scoreColor(scores[d])), borderRadius: 5 }] },
       options: { indexAxis:'y', scales:{ x:{min:0,max:5,ticks:{stepSize:1}}, y:{ticks:{font:{size:10,family:'Syne'}}} }, plugins:{legend:{display:false}}, animation:{duration:700} },
     })
     return () => ch.current?.destroy()
@@ -39,7 +39,7 @@ function TargetHBarChart({ assessment, assignedNums, canvasRef }: {
   useEffect(() => {
     if (!ref.current) return; ch.current?.destroy()
     const targets = assignedNums ? KMGBF_TARGETS.filter(t => assignedNums.includes(t.num)) : KMGBF_TARGETS
-    const scores  = targets.map(t => getTargetAvg(assessment, t.num, t.indicators) ?? 0)
+    const scores  = targets.map(t => { const v = getTargetAvg(assessment, t.num, t.indicators); return (v !== null && v !== -1) ? v : 0 })
     const labels  = targets.map(t => `T${t.num}: ${t.title.length > 28 ? t.title.slice(0,26)+'…' : t.title}`)
     ch.current = new Chart(ref.current, {
       type: 'bar',
@@ -101,7 +101,7 @@ function ReportRadarChart({ assessment, canvasRef }: { assessment: any; canvasRe
   const chart     = useRef<Chart | null>(null)
   const dimScores = getDimScores(assessment)
   const labels    = t.dimensions
-  const data      = Object.values(dimScores).map(v => v ?? 0)
+  const data      = Object.values(dimScores).map(v => (v !== null && v !== -1) ? v : 0)
 
   useEffect(() => {
     if (!ref.current) return
@@ -250,7 +250,7 @@ export default function ReportPage() {
                 <div style={{fontFamily:'var(--font-mono)',fontSize:56,fontWeight:300,lineHeight:1,color:scoreColor(overall)}}>{overall!==null?overall.toFixed(2):'—'}</div>
                 <div className="text-[12px] text-forest-400 mt-1">out of 5.00</div>
                 <div className="mt-2.5 px-4 py-1.5 rounded-full text-[12px] font-semibold" style={{background:scoreColor(overall)+'20',color:scoreColor(overall)}}>{interpret(overall)}</div>
-                <div className="mt-3 text-[11px] text-forest-400">{assessment.coreRows.filter((r: any)=>r.score!==null).length}/50 indicators scored</div>
+                <div className="mt-3 text-[11px] text-forest-400">{assessment.coreRows.filter((r: any)=>r.score!==null&&r.score!==-1).length}/50 indicators scored</div>
               </div>
             </div>
           </div>
@@ -261,7 +261,7 @@ export default function ReportPage() {
                 <thead><tr><th>Dimension</th><th>Score</th><th>Required</th><th>Gap</th><th>Priority</th><th>Interpretation</th></tr></thead>
                 <tbody>
                   {DIMENSIONS.map(d=>{
-                    const s=dimScores[d]; const req=assessment.required[d]; const gap=s!==null?s-req:null; const gb=gapBadge(gap)
+                    const s=dimScores[d]; const req=assessment.required[d]; const gap=(s!==null&&s!==-1)?s-req:null; const gb=gapBadge(gap)
                     return (<tr key={d}><td className="font-semibold text-[12.5px]">{d}</td><td><ScoreChip value={s}/></td>
                       <td><span className="chip" style={{background:'#e8e3da',color:'#5c7566'}}>{req}</span></td>
                       <td className="font-bold" style={{fontFamily:'var(--font-mono)',color:gap!==null&&gap<0?'#dc2626':'#15803d'}}>{gap!==null?(gap>=0?`+${gap.toFixed(1)}`:gap.toFixed(1)):'—'}</td>

@@ -16,8 +16,8 @@ export function makeAssessment(): Assessment {
 export const isNA = (score: number | null): boolean => score === -1
 
 // Returns true if score should count in analytics (not null, not N/A)
-export const isScorable = (score: number | null): score is number =>
-  score !== null && score !== -1 && !isNaN(score)
+export const isScorable = (score: number | null | undefined): score is number =>
+  score !== null && score !== undefined && score !== -1 && !isNaN(score as number)
 
 export function getDimScores(a: Assessment): Record<Dimension, number | null> {
   const acc: Record<string, { sum: number; n: number }> = {}

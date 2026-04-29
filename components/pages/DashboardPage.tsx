@@ -1,12 +1,12 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { Printer } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { DIMENSIONS, KMGBF_TARGETS } from '@/lib/constants'
 import { getDimScores, getOverall, getTargetAvg, scoreColor, interpret } from '@/lib/utils'
 import { getT } from '@/lib/i18n'
 import { StatCard, ScoreBar, ScoreChip } from '@/components/ui'
 import { BarChart2, Radar, Target, AlertTriangle, CheckCircle2, TrendingUp, Activity } from 'lucide-react'
+import { Printer } from 'lucide-react'
 import { Chart, RadarController, RadialLinearScale, PointElement, LineElement, Filler, Tooltip } from 'chart.js'
 
 Chart.register(RadarController, RadialLinearScale, PointElement, LineElement, Filler, Tooltip)
@@ -69,9 +69,9 @@ export default function DashboardPage() {
 
   const dimScores = getDimScores(assessment)
   const overall   = getOverall(assessment)
-  const answered  = assessment.coreRows.filter(r => r.score !== null).length
+  const answered  = assessment.coreRows.filter(r => r.score !== null && r.score !== -1).length
   const gapCount  = DIMENSIONS.filter(d => { const s=dimScores[d]; return s!==null && s<assessment.required[d] }).length
-  const tCount    = KMGBF_TARGETS.filter(tg => tg.indicators.some((_,i) => assessment.targetRows[`t${tg.num}_${i}`]?.score != null)).length
+  const tCount    = KMGBF_TARGETS.filter(tg => tg.indicators.some((_,i) => { const s = assessment.targetRows[`t${tg.num}_${i}`]?.score; return s != null && s !== -1 })).length
 
   return (
     <div className="fade-in">
