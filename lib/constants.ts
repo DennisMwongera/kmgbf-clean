@@ -128,7 +128,7 @@ export const CORE_QUESTIONS: CoreQuestion[] = [
   { section: 'Awareness and Capacity Development', q: 'Knowledge exchange with research institutions and universities' },
 ]
 
-export const CAPACITY_TYPES = ['', 'Policy', 'Institutional', 'Technical', 'Financial', 'Infrastructure', 'Knowledge']
+export const CAPACITY_TYPES = ['', 'Policy', 'Institutional', 'Technical', 'Financial', 'Infrastructure', 'Knowledge', 'Coordination', 'Awareness']
 export const PRIORITY_LEVELS = ['', 'Low', 'Med', 'High']
 export const TIMELINES = ['', '0–6 months', '6–12 months', '1–2 years', '2–5 years', 'Long-term']
 
