@@ -9,7 +9,7 @@ import { ScoreChip, SectionActions } from '@/components/ui'
 
 // Safe display helper — never shows NaN
 function safeAvg(v: number | null | undefined): number | null {
-  if (v === null || v === undefined || isNaN(v)) return null
+  if (v === null || v === undefined || isNaN(v as number) || v === -1) return null
   return v
 }
 
