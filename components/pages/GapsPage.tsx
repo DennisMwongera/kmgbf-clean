@@ -1,9 +1,11 @@
 'use client'
 import { useStore } from '@/lib/store'
 import { DIMENSIONS, CORE_QUESTIONS } from '@/lib/constants'
-import { getDimScores, gapBadge } from '@/lib/utils'
+import { getDimScores, gapBadge, interpret } from '@/lib/utils'
 import { getT } from '@/lib/i18n'
 import { ScoreChip, GapBadge, SectionActions } from '@/components/ui'
+import ExportMenu from '@/components/ExportMenu'
+import { downloadCSV, downloadXLSX } from '@/lib/exportUtils'
 
 export default function GapsPage() {
   const assessment = useStore(s => s.assessment)
@@ -19,6 +21,34 @@ export default function GapsPage() {
       <div className="mb-6">
         <h2 style={{ fontFamily:'var(--font-display)', fontSize:28, fontWeight:700, color:'#0f2d1c', lineHeight:1.1 }}>{t.gaps.title}</h2>
         <p className="text-[13.5px] text-forest-400 mt-1.5">{t.gaps.desc}</p>
+      </div>
+      <div className="flex justify-end mb-3">
+        <ExportMenu mini label="Export Gaps" options={[
+          { label:'CSV',  icon:'📋', action: () => {
+            const date = new Date().toISOString().slice(0,10)
+            const name = (assessment.profile.name||'Assessment').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30)
+            downloadCSV([
+              ['Dimension','Current Score','Required Score','Gap','Status','Indicators Scored','Interpretation'],
+              ...DIMENSIONS.map((d,i) => {
+                const s=getDimScores(assessment)[d]; const req=assessment.required[d]; const gap=s!==null?s-req:null
+                const scored=assessment.coreRows.filter((_,ci)=>CORE_QUESTIONS[ci].section===d&&assessment.coreRows[ci].score!==null&&assessment.coreRows[ci].score!==-1).length
+                return [d, s?.toFixed(2)??'', req, gap?.toFixed(2)??'', gap===null?'Not scored':gap>=0?'Met':'Gap', scored, interpret(s)]
+              })
+            ], `${name}_GapAnalysis_${date}`)
+          }},
+          { label:'XLSX', icon:'📊', action: () => {
+            const date = new Date().toISOString().slice(0,10)
+            const name = (assessment.profile.name||'Assessment').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30)
+            downloadXLSX([{ name:'Gap_Analysis', rows:[
+              ['Dimension','Current Score','Required Score','Gap','Status','Indicators Scored','Interpretation'],
+              ...DIMENSIONS.map((d,i) => {
+                const s=getDimScores(assessment)[d]; const req=assessment.required[d]; const gap=s!==null?s-req:null
+                const scored=assessment.coreRows.filter((_,ci)=>CORE_QUESTIONS[ci].section===d&&assessment.coreRows[ci].score!==null&&assessment.coreRows[ci].score!==-1).length
+                return [d, s?.toFixed(2)??'', req, gap?.toFixed(2)??'', gap===null?'Not scored':gap>=0?'Met':'Gap', scored, interpret(s)]
+              })
+            ]}], `${name}_GapAnalysis_${date}`)
+          }},
+        ]}/>
       </div>
       <div className="card">
         <div className="grid gap-3 pb-2.5 mb-1 border-b-2 border-forest-100 text-[10px] font-bold tracking-[1.2px] uppercase text-forest-400"

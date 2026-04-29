@@ -3,6 +3,8 @@ import { useStore } from '@/lib/store'
 import { gapItems, getDimScores } from '@/lib/utils'
 import { getT } from '@/lib/i18n'
 import { SectionActions } from '@/components/ui'
+import ExportMenu from '@/components/ExportMenu'
+import { downloadCSV, downloadXLSX } from '@/lib/exportUtils'
 
 function PCircle({ score }: { score: number }) {
   const s = score>=10?{bg:'#fee2e2',c:'#dc2626'}:score>=5?{bg:'#fef3c7',c:'#d97706'}:{bg:'#dcfce7',c:'#15803d'}
@@ -51,6 +53,38 @@ export default function PriorityPage() {
       </div>
       {rows.length > 0 ? (
         <>
+          <div className="flex justify-end mb-3">
+            <ExportMenu mini label="Export Prioritization" options={[
+              { label:'CSV',  icon:'📋', action: () => {
+                const date = new Date().toISOString().slice(0,10)
+                const name = (assessment.profile.name||'Assessment').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30)
+                downloadCSV([
+                  ['Rank','Capacity Gap','Dimension','Score','Gap','Urgency','Impact','Feasibility','Priority Score','Level'],
+                  ...rows.map((r,rank) => [
+                    rank+1, r.label, r.dim,
+                    r.dimScore?.toFixed(1)??'', r.gap>0?`-${r.gap.toFixed(1)}`:'Met',
+                    r.urgency, r.impact, r.feasibility,
+                    r.score.toFixed(1),
+                    r.score>=10?'High':r.score>=5?'Medium':'Low'
+                  ])
+                ], `${name}_Prioritization_${date}`)
+              }},
+              { label:'XLSX', icon:'📊', action: () => {
+                const date = new Date().toISOString().slice(0,10)
+                const name = (assessment.profile.name||'Assessment').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30)
+                downloadXLSX([{ name:'Prioritization', rows:[
+                  ['Rank','Capacity Gap','Dimension','Score','Gap','Urgency','Impact','Feasibility','Priority Score','Level'],
+                  ...rows.map((r,rank) => [
+                    rank+1, r.label, r.dim,
+                    r.dimScore?.toFixed(1)??'', r.gap>0?`-${r.gap.toFixed(1)}`:'Met',
+                    r.urgency, r.impact, r.feasibility,
+                    r.score.toFixed(1),
+                    r.score>=10?'High':r.score>=5?'Medium':'Low'
+                  ])
+                ]}], `${name}_Prioritization_${date}`)
+              }},
+            ]}/>
+          </div>
           <div className="rounded-2xl overflow-hidden border border-sand-300">
             <table className="dt w-full">
               <thead>
