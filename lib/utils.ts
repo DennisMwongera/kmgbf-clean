@@ -12,11 +12,18 @@ export function makeAssessment(): Assessment {
   }
 }
 
+// ─── N/A helper ───────────────────────────────────────────────
+export const isNA = (score: number | null): boolean => score === -1
+
+// Returns true if score should count in analytics (not null, not N/A)
+export const isScorable = (score: number | null): score is number =>
+  score !== null && score !== -1 && !isNaN(score)
+
 export function getDimScores(a: Assessment): Record<Dimension, number | null> {
   const acc: Record<string, { sum: number; n: number }> = {}
   DIMENSIONS.forEach(d => { acc[d] = { sum:0, n:0 } })
   a.coreRows.forEach((row, i) => {
-    if (row.score !== null) { acc[CORE_QUESTIONS[i].section].sum += row.score; acc[CORE_QUESTIONS[i].section].n++ }
+    if (isScorable(row.score)) { acc[CORE_QUESTIONS[i].section].sum += row.score; acc[CORE_QUESTIONS[i].section].n++ }
   })
   const out = {} as Record<Dimension, number | null>
   DIMENSIONS.forEach(d => { out[d] = acc[d].n > 0 ? acc[d].sum / acc[d].n : null })
@@ -24,17 +31,17 @@ export function getDimScores(a: Assessment): Record<Dimension, number | null> {
 }
 
 export function getOverall(a: Assessment): number | null {
-  const scores = a.coreRows.map(r => r.score).filter((s): s is number => s !== null)
+  const scores = a.coreRows.map(r => r.score).filter(isScorable)
   return scores.length ? scores.reduce((x,y) => x+y, 0) / scores.length : null
 }
 
 export function getTargetAvg(a: Assessment, num: number, indicators: string[]): number | null {
-  const scores = indicators.map((_,i) => a.targetRows[`t${num}_${i}`]?.score).filter((s): s is number => s !== null && !isNaN(s))
+  const scores = indicators.map((_,i) => a.targetRows[`t${num}_${i}`]?.score).filter(isScorable)
   return scores.length ? scores.reduce((x,y) => x+y, 0) / scores.length : null
 }
 
 export function scoreColor(v: number | null): string {
-  if (v === null) return '#9ca3af'
+  if (v === null || v === -1) return '#9ca3af'
   if (v < 1) return '#dc2626'; if (v < 2) return '#c2410c'
   if (v < 3) return '#a16207'; if (v < 4) return '#15803d'
   if (v < 4.8) return '#047857'; return '#065f46'
@@ -42,6 +49,7 @@ export function scoreColor(v: number | null): string {
 
 export function interpret(v: number | null, t?: { interp: { notAssessed:string; critical:string; veryLimited:string; basic:string; moderate:string; strong:string; adequate:string } }): string {
   const i = t?.interp
+  if (v === -1) return 'Not applicable'
   if (v === null) return i?.notAssessed ?? 'Not assessed'
   if (v < 1)   return i?.critical    ?? 'Critical – no capacity'
   if (v < 2)   return i?.veryLimited ?? 'Very limited'
@@ -52,7 +60,7 @@ export function interpret(v: number | null, t?: { interp: { notAssessed:string; 
 }
 
 export function chipStyle(v: number | null) {
-  if (v === null) return { background:'#f3f4f6', color:'#9ca3af' }
+  if (v === null || v === -1) return { background:'#f3f4f6', color:'#9ca3af' }
   if (v < 1)   return { background:'#fee2e2', color:'#dc2626' }
   if (v < 2)   return { background:'#ffedd5', color:'#c2410c' }
   if (v < 3)   return { background:'#fef9c3', color:'#a16207' }
@@ -84,7 +92,7 @@ export function gapItems(a: Assessment) {
   a.coreRows.forEach((row, i) => { if (row.gap?.trim()) items.push({ label:row.gap, dim:CORE_QUESTIONS[i].section }) })
   DIMENSIONS.forEach(d => {
     const s = dimScores[d]
-    if (s !== null && s < a.required[d] && !items.find(x => x.dim===d))
+    if (s !== null && s !== -1 && s < a.required[d] && !items.find(x => x.dim===d))
       items.push({ label:`${d} capacity gap`, dim:d })
   })
   return items

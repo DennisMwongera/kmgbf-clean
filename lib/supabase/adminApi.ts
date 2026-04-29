@@ -91,19 +91,19 @@ export async function loadAllInstitutionReports(): Promise<InstitutionReport[]> 
         .filter(({ q }) => q.section === dim)
         .map(({ i }) => i)
 
-      const rows   = (coreByAssess[aid] ?? []).filter(r => qIdxs.includes(r.question_index) && r.score !== null)
+      const rows   = (coreByAssess[aid] ?? []).filter(r => qIdxs.includes(r.question_index) && r.score !== null && r.score !== -1)
       totalAnswered += rows.length
       dimScores[dim] = rows.length > 0 ? rows.reduce((s, r) => s + (r.score ?? 0), 0) / rows.length : null
     })
 
     // Overall score
-    const validDims   = Object.values(dimScores).filter(v => v !== null) as number[]
+    const validDims   = Object.values(dimScores).filter((v): v is number => v !== null && v !== -1)
     const overallScore = validDims.length > 0 ? validDims.reduce((a, b) => a + b, 0) / validDims.length : null
 
     // Target scores
     const targetScores: Record<number, number | null> = {}
     KMGBF_TARGETS.forEach(t => {
-      const rows = (targetByAssess[aid] ?? []).filter(r => r.target_num === t.num && r.score !== null)
+      const rows = (targetByAssess[aid] ?? []).filter(r => r.target_num === t.num && r.score !== null && r.score !== -1)
       targetScores[t.num] = rows.length > 0 ? rows.reduce((s, r) => s + (r.score ?? 0), 0) / rows.length : null
     })
 

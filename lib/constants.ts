@@ -11,12 +11,12 @@ export interface InstitutionProfile {
 }
 
 export interface CoreRow {
-  score: number | null; evidence: string; gap: string
+  score: number | null; evidence: string; gap: string  // -1 = N/A (Not Applicable)
   capacityType: string; priority: string; suggestedSupport: string
 }
 
 export interface TargetRow {
-  score: number | null; evidence: string
+  score: number | null; evidence: string  // -1 = N/A (Not Applicable)
   gapIdentified: string; capacityNeed: string
 }
 
