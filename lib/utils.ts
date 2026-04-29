@@ -93,12 +93,13 @@ export function gapItems(a: Assessment) {
 // Maps a dimension/section name to its default capacity type
 export function defaultCapacityType(section: string | undefined | null): string {
   if (!section) return ''
-  if (section.includes('Policy') || section.includes('Legal'))       return 'Policy'
-  if (section.includes('Institutional'))                             return 'Institutional'
-  if (section.includes('Technical'))                                 return 'Technical'
-  if (section.includes('Financial'))                                 return 'Financial'
+  if (section.includes('Policy') || section.includes('Legal'))            return 'Policy'
+  if (section.includes('Institutional'))                                  return 'Institutional'
+  if (section.includes('Technical'))                                      return 'Technical'
+  if (section.includes('Financial'))                                      return 'Financial'
   if (section.includes('Infrastructure') || section.includes('Equipment')) return 'Infrastructure'
-  if (section.includes('Knowledge') || section.includes('Information'))    return 'Knowledge'
-  if (section.includes('Awareness') || section.includes('Coordination') || section.includes('Governance')) return 'Institutional'
+  if (section.includes('Knowledge') || section.includes('Information'))   return 'Knowledge'
+  if (section.includes('Coordination') || section.includes('Governance')) return 'Coordination'
+  if (section.includes('Awareness'))                                      return 'Awareness'
   return ''
 }
