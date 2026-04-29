@@ -3,40 +3,21 @@ import { useStore } from '@/lib/store'
 import { PAGE_TITLES, CORE_QUESTIONS } from '@/lib/constants'
 import { supabase } from '@/lib/supabase/client'
 import { loadInstitutionAssessment } from '@/lib/supabase/api'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState } from 'react'
 import { LANGUAGES, getT, type LangCode } from '@/lib/i18n'
 import { Save, Loader2, Globe, ChevronDown, Check } from 'lucide-react'
 
 export default function Topbar() {
   const { activePage, assessment, setAssessment, user, notify, lang, setLang } = useStore()
   const isReadOnly = useStore(s => s.isReadOnly())
-  const [saving,    setSaving]    = useState(false)
-  const [autoSaved, setAutoSaved] = useState(false)
-  const [showLang,  setShowLang]  = useState(false)
-  const t            = getT(lang ?? 'en')
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isSavingRef  = useRef(false)
+  const [saving,   setSaving]  = useState(false)
+  const [showLang, setShowLang] = useState(false)
+  const t = getT(lang ?? 'en')
 
-  // Refs to always read latest values inside async save without stale closure
-  const assessmentRef = useRef(assessment)
-  const userRef       = useRef(user)
-  const tRef          = useRef(t)
-  useEffect(() => { assessmentRef.current = assessment }, [assessment])
-  useEffect(() => { userRef.current = user },             [user])
-  useEffect(() => { tRef.current = t },                   [t])
-
-  const performSave = useCallback(async (silent = false) => {
-    const u = userRef.current
-    const a = assessmentRef.current
-    const tr = tRef.current
-    if (!u) { if (!silent) notify(tr.topbar.notSignedIn); return }
-    if (!u.institution_id) { if (!silent) notify(tr.topbar.noInstitution); return }
-    if (isSavingRef.current) return   // prevent concurrent saves
-    isSavingRef.current = true
-    if (!silent) setSaving(true)
-    const user = u
-    const assessment = a
-    const t = tr
+  async function save() {
+    if (!user) { notify(t.topbar.notSignedIn); return }
+    if (!user.institution_id) { notify(t.topbar.noInstitution); return }
+    setSaving(true)
     try {
       // ── 1. Upsert assessment record ───────────────────────
       const { data: aData, error: aErr } = await supabase
@@ -66,9 +47,18 @@ export default function Topbar() {
         priority:          r.priority          || null,
         suggested_support: r.suggestedSupport  || null,
       }))
-      const { error: coreErr } = await supabase
+      // Try upsert with N/A scores (-1). If DB constraint rejects it,
+      // fall back to saving N/A rows with score=null (safe for unmigrated DBs)
+      let { error: coreErr } = await supabase
         .from('core_responses')
         .upsert(coreUpserts, { onConflict: 'assessment_id,question_index' })
+      if (coreErr && coreErr.message?.includes('check')) {
+        // DB constraint doesn't allow -1 yet — save N/A as null
+        const fallback = coreUpserts.map(r => ({ ...r, score: r.score === -1 ? null : r.score }));
+        ({ error: coreErr } = await supabase
+          .from('core_responses')
+          .upsert(fallback, { onConflict: 'assessment_id,question_index' }))
+      }
       if (coreErr) throw coreErr
 
       // ── 3. Target responses (upsert by target+indicator) ──
@@ -86,9 +76,15 @@ export default function Topbar() {
         }
       })
       if (targetUpserts.length) {
-        const { error: targErr } = await supabase
+        let { error: targErr } = await supabase
           .from('target_responses')
           .upsert(targetUpserts, { onConflict: 'assessment_id,target_num,indicator_index' })
+        if (targErr && targErr.message?.includes('check')) {
+          const fallback = targetUpserts.map(r => ({ ...r, score: r.score === -1 ? null : r.score }));
+          ({ error: targErr } = await supabase
+            .from('target_responses')
+            .upsert(fallback, { onConflict: 'assessment_id,target_num,indicator_index' }))
+        }
         if (targErr) throw targErr
       }
 
@@ -146,58 +142,14 @@ export default function Topbar() {
       const refreshed = await loadInstitutionAssessment(user.institution_id)
       if (refreshed) setAssessment({ ...refreshed, id: aid })
       else setAssessment({ ...assessment, id: aid })
-      if (silent) {
-        setAutoSaved(true)
-        setTimeout(() => setAutoSaved(false), 2500)
-      } else {
-        notify(t.topbar.saved)
-      }
+      notify(t.topbar.saved)
     } catch (e: any) {
       console.error('Save error:', e)
-      if (!silent) notify(`Save failed: ${e.message}`)
+      notify(`Save failed: ${e.message}`)
     } finally {
-      isSavingRef.current = false
-      if (!silent) setSaving(false)
+      setSaving(false)
     }
-  }, []) // stable — reads latest values via refs
-
-  // Manual save wrapper
-  async function save() {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = null
-    }
-    await performSave(false)
   }
-
-  // Auto-save: debounce 3s after any assessment field change
-  // Uses a change counter to avoid depending on the full assessment object
-  // (which would re-trigger after every reload from DB)
-  const [changeCount, setChangeCount] = useState(0)
-  const prevAssessmentRef = useRef<string>('')
-
-  useEffect(() => {
-    // Build a fingerprint of user-editable fields only (not id/metadata)
-    const fingerprint = JSON.stringify({
-      profile:     assessment.profile,
-      coreRows:    assessment.coreRows,
-      targetRows:  assessment.targetRows,
-      priorityRows:assessment.priorityRows,
-      cdpRows:     assessment.cdpRows,
-    })
-    if (fingerprint === prevAssessmentRef.current) return // no real change
-    prevAssessmentRef.current = fingerprint
-
-    if (!userRef.current?.institution_id) return
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => {
-      performSave(true)
-    }, 3000)
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    }
-  }, [assessment.profile, assessment.coreRows, assessment.targetRows,
-      assessment.priorityRows, assessment.cdpRows])
 
   const currentLang = LANGUAGES.find(l => l.code === lang) ?? LANGUAGES[0]
 
@@ -273,12 +225,6 @@ export default function Topbar() {
         {/* Auto-saved indicator + Save button — hidden for viewers */}
         {!isReadOnly && (
           <div className="flex items-center gap-2">
-            {autoSaved && !saving && (
-              <span className="flex items-center gap-1 text-[11px] font-medium fade-in"
-                style={{ color:'#52b788' }}>
-                <span>✓</span> Auto-saved
-              </span>
-            )}
             <button
               className="btn btn-primary btn-sm"
               onClick={save}

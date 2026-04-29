@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useEffect, memo } from 'react'
+import { useState, useCallback, useEffect, memo, Fragment } from 'react'
 import { useStore } from '@/lib/store'
 import { type CoreRow } from '@/lib/constants'
 import { groupedQuestions, scoreColor, defaultCapacityType, isNA, PRIORITY_CANONICAL, toCanonical, fromCanonical } from '@/lib/utils'
@@ -158,7 +158,7 @@ export default function CorePage() {
           </thead>
           <tbody>
             {Object.entries(grouped).map(([enSection, qs], sIdx) => (
-              <>
+              <Fragment key={enSection}>
                 <tr key={`sec-${enSection}`} className="sr">
                   <td colSpan={7}>{t.core.sections[sIdx] || enSection}</td>
                 </tr>
@@ -173,7 +173,7 @@ export default function CorePage() {
                     t={t}
                   />
                 ))}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
