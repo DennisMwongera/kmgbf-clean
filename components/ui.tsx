@@ -1,7 +1,11 @@
 'use client'
-import { chipStyle, scoreColor, interpret, gapBadge } from '@/lib/utils'
+import { chipStyle, scoreColor, interpret, gapBadge, isNA } from '@/lib/utils'
 
 export function ScoreChip({ value }: { value: number | null }) {
+  if (isNA(value)) return (
+    <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-medium"
+      style={{ background:'#f3f4f6', color:'#9ca3af', fontFamily:'var(--font-mono)' }}>N/A</span>
+  )
   const s = chipStyle(value)
   return <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-medium"
     style={{ ...s, fontFamily:'var(--font-mono)' }}>{value === null ? '—' : value.toFixed(1)}</span>
