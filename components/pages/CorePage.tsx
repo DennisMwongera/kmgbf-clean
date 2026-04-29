@@ -1,8 +1,8 @@
 'use client'
-import { useState, useCallback, memo } from 'react'
+import { useState, useCallback, useEffect, memo } from 'react'
 import { useStore } from '@/lib/store'
 import { type CoreRow } from '@/lib/constants'
-import { groupedQuestions, scoreColor, defaultCapacityType, isNA } from '@/lib/utils'
+import { groupedQuestions, scoreColor, defaultCapacityType, isNA, PRIORITY_CANONICAL, toCanonical, fromCanonical } from '@/lib/utils'
 import { getT } from '@/lib/i18n'
 import { SectionActions } from '@/components/ui'
 import ReadOnlyBanner from '@/components/ReadOnlyBanner'
@@ -14,9 +14,18 @@ const CoreRowInputs = memo(function CoreRowInputs({ idx, question, section, init
 }) {
   const na = isNA(initialRow.score)
   const [score,   setScore]   = useState(na ? 'N/A' : initialRow.score !== null && !isNaN(initialRow.score as number) ? String(initialRow.score) : '')
-  const [evid,    setEvid]    = useState(initialRow.evidence   ?? '')
-  const [gap,     setGap]     = useState(initialRow.gap        ?? '')
+  const [evid,    setEvid]    = useState(initialRow.evidence         ?? '')
+  const [gap,     setGap]     = useState(initialRow.gap              ?? '')
   const [support, setSupport] = useState(initialRow.suggestedSupport ?? '')
+
+  // Sync local state when store is reloaded from DB (e.g. after save+refresh)
+  useEffect(() => {
+    const isNaVal = isNA(initialRow.score)
+    setScore(isNaVal ? 'N/A' : initialRow.score !== null && !isNaN(initialRow.score as number) ? String(initialRow.score) : '')
+  }, [initialRow.score])
+  useEffect(() => { setEvid(initialRow.evidence         ?? '') }, [initialRow.evidence])
+  useEffect(() => { setGap(initialRow.gap               ?? '') }, [initialRow.gap])
+  useEffect(() => { setSupport(initialRow.suggestedSupport ?? '') }, [initialRow.suggestedSupport])
 
   // Always derive from section — never use stale stored value
   const effectiveCapacityType = defaultCapacityType(section) || '—'
@@ -87,9 +96,12 @@ const CoreRowInputs = memo(function CoreRowInputs({ idx, question, section, init
       </td>
       <td>
         <select className="ti" style={{appearance:'none', cursor: readOnly || na ? 'default' : 'pointer'}}
-          value={initialRow.priority}
+          value={fromCanonical(PRIORITY_CANONICAL, t.core.priorities, initialRow.priority)}
           disabled={readOnly || na}
-          onChange={e => onUpdate(idx,'priority',e.target.value)}>
+          onChange={e => {
+            const canonical = toCanonical(t.core.priorities, e.target.value, PRIORITY_CANONICAL)
+            onUpdate(idx, 'priority', canonical)
+          }}>
           {t.core.priorities.map((pr, i) => (
             <option key={i} value={pr} style={{background:'white',color:'#131f18'}}>{pr || t.common.selectDots}</option>
           ))}

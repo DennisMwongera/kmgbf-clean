@@ -2,29 +2,50 @@
 import { useStore } from '@/lib/store'
 import { PAGE_TITLES, CORE_QUESTIONS } from '@/lib/constants'
 import { supabase } from '@/lib/supabase/client'
-import { useState } from 'react'
+import { loadInstitutionAssessment } from '@/lib/supabase/api'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { LANGUAGES, getT, type LangCode } from '@/lib/i18n'
 import { Save, Loader2, Globe, ChevronDown, Check } from 'lucide-react'
 
 export default function Topbar() {
   const { activePage, assessment, setAssessment, user, notify, lang, setLang } = useStore()
   const isReadOnly = useStore(s => s.isReadOnly())
-  const [saving, setSaving] = useState(false)
-  const [showLang, setShowLang] = useState(false)
-  const t = getT(lang ?? 'en')
+  const [saving,    setSaving]    = useState(false)
+  const [autoSaved, setAutoSaved] = useState(false)
+  const [showLang,  setShowLang]  = useState(false)
+  const t            = getT(lang ?? 'en')
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isSavingRef  = useRef(false)
 
-  async function save() {
-    if (!user) { notify(t.topbar.notSignedIn); return }
-    if (!user.institution_id) { notify(t.topbar.noInstitution); return }
-    setSaving(true)
+  // Refs to always read latest values inside async save without stale closure
+  const assessmentRef = useRef(assessment)
+  const userRef       = useRef(user)
+  const tRef          = useRef(t)
+  useEffect(() => { assessmentRef.current = assessment }, [assessment])
+  useEffect(() => { userRef.current = user },             [user])
+  useEffect(() => { tRef.current = t },                   [t])
+
+  const performSave = useCallback(async (silent = false) => {
+    const u = userRef.current
+    const a = assessmentRef.current
+    const tr = tRef.current
+    if (!u) { if (!silent) notify(tr.topbar.notSignedIn); return }
+    if (!u.institution_id) { if (!silent) notify(tr.topbar.noInstitution); return }
+    if (isSavingRef.current) return   // prevent concurrent saves
+    isSavingRef.current = true
+    if (!silent) setSaving(true)
+    const user = u
+    const assessment = a
+    const t = tr
     try {
+      // ── 1. Upsert assessment record ───────────────────────
       const { data: aData, error: aErr } = await supabase
         .from('assessments')
         .upsert({
           id:             assessment.id ?? undefined,
           institution_id: user.institution_id,
           created_by:     user.id,
-          assess_date:    assessment.profile.assessDate,
+          assess_date:    assessment.profile.assessDate || new Date().toISOString().slice(0,10),
           status:         'in_progress',
         })
         .select('id')
@@ -32,6 +53,7 @@ export default function Topbar() {
       if (aErr) throw aErr
       const aid = aData.id
 
+      // ── 2. Core responses (upsert by index) ───────────────
       const coreUpserts = assessment.coreRows.map((r, i) => ({
         assessment_id:     aid,
         question_index:    i,
@@ -44,8 +66,12 @@ export default function Topbar() {
         priority:          r.priority          || null,
         suggested_support: r.suggestedSupport  || null,
       }))
-      await supabase.from('core_responses').upsert(coreUpserts, { onConflict: 'assessment_id,question_index' })
+      const { error: coreErr } = await supabase
+        .from('core_responses')
+        .upsert(coreUpserts, { onConflict: 'assessment_id,question_index' })
+      if (coreErr) throw coreErr
 
+      // ── 3. Target responses (upsert by target+indicator) ──
       const targetUpserts = Object.entries(assessment.targetRows).map(([key, row]) => {
         const [, tNum, iIdx] = key.match(/^t(\d+)_(\d+)$/) ?? []
         return {
@@ -60,28 +86,118 @@ export default function Topbar() {
         }
       })
       if (targetUpserts.length) {
-        await supabase.from('target_responses').upsert(targetUpserts, { onConflict: 'assessment_id,target_num,indicator_index' })
+        const { error: targErr } = await supabase
+          .from('target_responses')
+          .upsert(targetUpserts, { onConflict: 'assessment_id,target_num,indicator_index' })
+        if (targErr) throw targErr
       }
 
-      await supabase.from('institutions').update({
+      // ── 4. Priority rows (delete + re-insert to preserve order) ──
+      await supabase.from('priority_rows').delete().eq('assessment_id', aid)
+      const activePriority = assessment.priorityRows.filter(r => r.capacityGap || r.urgency !== 3 || r.impact !== 3 || r.feasibility !== 3)
+      if (activePriority.length) {
+        const { error: prErr } = await supabase.from('priority_rows').insert(
+          activePriority.map((r, i) => ({
+            assessment_id: aid,
+            sort_order:    i,
+            capacity_gap:  r.capacityGap  || null,
+            urgency:       r.urgency,
+            impact:        r.impact,
+            feasibility:   r.feasibility,
+          }))
+        )
+        if (prErr) throw prErr
+      }
+
+      // ── 5. CDP rows (delete + re-insert to preserve order) ──
+      await supabase.from('cdp_rows').delete().eq('assessment_id', aid)
+      const activeCdp = assessment.cdpRows.filter(r => r.capacityGap || r.action)
+      if (activeCdp.length) {
+        const { error: cdpErr } = await supabase.from('cdp_rows').insert(
+          activeCdp.map((r, i) => ({
+            assessment_id: aid,
+            sort_order:    i,
+            capacity_gap:  r.capacityGap   || null,
+            action:        r.action        || null,
+            institution:   r.institution   || null,
+            timeline:      r.timeline      || null,
+            budget_usd:    r.budget        || null,
+            indicator:     r.indicator     || null,
+            collaboration: r.collaboration || null,
+          }))
+        )
+        if (cdpErr) throw cdpErr
+      }
+
+      // ── 6. Institution profile ─────────────────────────────
+      const { error: instErr } = await supabase.from('institutions').update({
         name:        assessment.profile.name,
         type:        assessment.profile.type  as any,
         level:       assessment.profile.level as any,
-        mandate:     assessment.profile.mandate,
-        scope:       assessment.profile.scope,
-        focal_name:  assessment.profile.focalName,
-        focal_title: assessment.profile.focalTitle,
-        focal_email: assessment.profile.focalEmail,
+        mandate:     assessment.profile.mandate || null,
+        scope:       assessment.profile.scope   || null,
+        focal_name:  assessment.profile.focalName  || null,
+        focal_title: assessment.profile.focalTitle || null,
+        focal_email: assessment.profile.focalEmail || null,
       }).eq('id', user.institution_id)
+      if (instErr) throw instErr
 
-      setAssessment({ ...assessment, id: aid })
-      notify(t.topbar.saved)
+      // Reload from DB to confirm all data persisted correctly
+      const refreshed = await loadInstitutionAssessment(user.institution_id)
+      if (refreshed) setAssessment({ ...refreshed, id: aid })
+      else setAssessment({ ...assessment, id: aid })
+      if (silent) {
+        setAutoSaved(true)
+        setTimeout(() => setAutoSaved(false), 2500)
+      } else {
+        notify(t.topbar.saved)
+      }
     } catch (e: any) {
-      notify(`Save failed: ${e.message}`)
+      console.error('Save error:', e)
+      if (!silent) notify(`Save failed: ${e.message}`)
     } finally {
-      setSaving(false)
+      isSavingRef.current = false
+      if (!silent) setSaving(false)
     }
+  }, []) // stable — reads latest values via refs
+
+  // Manual save wrapper
+  async function save() {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    await performSave(false)
   }
+
+  // Auto-save: debounce 3s after any assessment field change
+  // Uses a change counter to avoid depending on the full assessment object
+  // (which would re-trigger after every reload from DB)
+  const [changeCount, setChangeCount] = useState(0)
+  const prevAssessmentRef = useRef<string>('')
+
+  useEffect(() => {
+    // Build a fingerprint of user-editable fields only (not id/metadata)
+    const fingerprint = JSON.stringify({
+      profile:     assessment.profile,
+      coreRows:    assessment.coreRows,
+      targetRows:  assessment.targetRows,
+      priorityRows:assessment.priorityRows,
+      cdpRows:     assessment.cdpRows,
+    })
+    if (fingerprint === prevAssessmentRef.current) return // no real change
+    prevAssessmentRef.current = fingerprint
+
+    if (!userRef.current?.institution_id) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      performSave(true)
+    }, 3000)
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [assessment.profile, assessment.coreRows, assessment.targetRows,
+      assessment.priorityRows, assessment.cdpRows])
 
   const currentLang = LANGUAGES.find(l => l.code === lang) ?? LANGUAGES[0]
 
@@ -154,20 +270,30 @@ export default function Topbar() {
           )}
         </div>
 
-        {/* Save button — hidden for viewers */}
-        {!isReadOnly && <button
-          className="btn btn-primary btn-sm"
-          onClick={save}
-          disabled={saving}
-          style={{ opacity: saving ? 0.7 : 1, minWidth: 90 }}
-        >
-          {saving
-            ? <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                {t.topbar.saving}
+        {/* Auto-saved indicator + Save button — hidden for viewers */}
+        {!isReadOnly && (
+          <div className="flex items-center gap-2">
+            {autoSaved && !saving && (
+              <span className="flex items-center gap-1 text-[11px] font-medium fade-in"
+                style={{ color:'#52b788' }}>
+                <span>✓</span> Auto-saved
               </span>
-            : <span className="flex items-center gap-1.5"><Save size={13}/> {t.topbar.save.replace('💾 ','')}</span>}
-        </button>}
+            )}
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={save}
+              disabled={saving}
+              style={{ opacity: saving ? 0.7 : 1, minWidth: 90 }}
+            >
+              {saving
+                ? <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                    {t.topbar.saving}
+                  </span>
+                : <span className="flex items-center gap-1.5"><Save size={13}/> {t.topbar.save.replace('💾 ','')}</span>}
+            </button>
+          </div>
+        )}
       </div>
     </header>
   )
