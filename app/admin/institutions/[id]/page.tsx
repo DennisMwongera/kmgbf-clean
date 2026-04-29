@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import Link from 'next/link'
+import { Eye } from 'lucide-react'
 
 const ROLES = ['admin','institution_lead','contributor','viewer']
 const ROLE_COLORS: Record<string,{bg:string;text:string}> = {
@@ -111,9 +112,14 @@ export default function InstitutionDetailPage() {
             {inst.level && <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold" style={{ background:'#dbeafe', color:'#1d4ed8' }}>{inst.level}</span>}
           </div>
         </div>
-        <button className="btn btn-ghost" onClick={() => setEditing(v => !v)}>
-          {editing ? '✕ Cancel' : '✏️ Edit'}
-        </button>
+        <div className="flex gap-2 items-center">
+          <Link href={`/admin/institutions/${id}/assessment`} className="btn btn-primary flex items-center gap-1.5">
+            <Eye size={13}/> View Assessment
+          </Link>
+          <button className="btn btn-ghost" onClick={() => setEditing(v => !v)}>
+            {editing ? '✕ Cancel' : '✏️ Edit'}
+          </button>
+        </div>
       </div>
 
       {/* Edit form */}

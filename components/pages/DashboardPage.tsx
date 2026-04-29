@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import { Printer } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { DIMENSIONS, KMGBF_TARGETS } from '@/lib/constants'
 import { getDimScores, getOverall, getTargetAvg, scoreColor, interpret } from '@/lib/utils'
@@ -74,9 +75,15 @@ export default function DashboardPage() {
 
   return (
     <div className="fade-in">
-      <div className="mb-6">
-        <h2 style={{ fontFamily:'var(--font-display)', fontSize:28, fontWeight:700, color:'#0f2d1c', lineHeight:1.1 }}>{d.title}</h2>
-        <p className="text-[13.5px] text-forest-400 mt-1.5">{d.desc}</p>
+      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h2 style={{ fontFamily:'var(--font-display)', fontSize:28, fontWeight:700, color:'#0f2d1c', lineHeight:1.1 }}>{d.title}</h2>
+          <p className="text-[13.5px] text-forest-400 mt-1.5">{d.desc}</p>
+        </div>
+        <button className="btn btn-ghost flex items-center gap-1.5 no-print"
+          onClick={() => setTimeout(() => window.print(), 50)}>
+          <Printer size={13}/> Print Dashboard
+        </button>
       </div>
 
       <div className="grid grid-cols-4 gap-4 mb-5">
