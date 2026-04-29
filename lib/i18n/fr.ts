@@ -20,7 +20,6 @@ const fr: Translations = {
     report:      "Rapports et graphiques",
     team:        'Équipe',
     myTargets:   'Nos cibles',
-    team:        'Équipe',
     exportData:  'Exporter les données',
     signIn:      'Se connecter pour synchroniser',
     signOut:     'Se déconnecter',
