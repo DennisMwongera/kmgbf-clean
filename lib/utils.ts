@@ -111,3 +111,56 @@ export function defaultCapacityType(section: string | undefined | null): string 
   if (section.includes('Awareness'))                                      return 'Awareness'
   return ''
 }
+
+// ─── Language-neutral dropdown value maps ─────────────────────
+// Stored values are always English. These maps convert between
+// display labels (any language) ↔ canonical English stored values.
+
+export const PRIORITY_CANONICAL = ['', 'Low', 'Med', 'High'] as const
+export const TIMELINE_CANONICAL = [
+  '', '0–6 months', '6–12 months', '1–2 years', '2–5 years', 'Long-term'
+] as const
+
+// Given a translated label array and a stored English value,
+// find the index to highlight the correct <option>
+export function canonicalIndex(canonical: readonly string[], storedValue: string): number {
+  return canonical.indexOf(storedValue as any)
+}
+
+// Given any translated label (from any language), return the English stored value
+// by matching position in the canonical array
+export function toCanonical(
+  translatedOptions: string[],
+  selectedLabel: string,
+  canonicalOptions: readonly string[]
+): string {
+  const idx = translatedOptions.indexOf(selectedLabel)
+  return idx >= 0 ? canonicalOptions[idx] ?? '' : selectedLabel
+}
+
+// Given a stored value (English canonical OR legacy translated), return
+// the translated label for display in the current language's dropdown
+export function fromCanonical(
+  canonicalOptions: readonly string[],
+  translatedOptions: string[],
+  storedValue: string
+): string {
+  if (!storedValue) return ''
+  // 1. Try matching stored value as canonical English
+  const canonIdx = canonicalOptions.indexOf(storedValue as any)
+  if (canonIdx >= 0) return translatedOptions[canonIdx] ?? storedValue
+  // 2. Stored value might already be a translated label (legacy data)
+  //    Find which position it maps to in any language by checking
+  //    if it exists anywhere in translatedOptions → return same label
+  if (translatedOptions.includes(storedValue)) return storedValue
+  // 3. Unknown value — return as-is (shows blank in dropdown, user must re-select)
+  return ''
+}
+
+export const INST_TYPES_CANONICAL = [
+  'Government Ministry','Regulatory Agency','Research Institute','NGO / Civil Society',
+  'International Organization','Private Sector','Academic Institution',
+  'Protected Area Authority','Local Government','Other'
+] as const
+
+export const INST_LEVELS_CANONICAL = ['National','Regional','Local','International'] as const

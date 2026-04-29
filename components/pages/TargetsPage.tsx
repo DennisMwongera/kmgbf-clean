@@ -7,32 +7,55 @@ import { getT } from '@/lib/i18n'
 import { supabase } from '@/lib/supabase/client'
 import { ScoreChip, SectionActions } from '@/components/ui'
 
+// Safe display helper — never shows NaN
+function safeAvg(v: number | null | undefined): number | null {
+  if (v === null || v === undefined || isNaN(v)) return null
+  return v
+}
+
 const TargetRowInputs = memo(function TargetRowInputs({ rowKey, initialRow, onUpdate, t }: {
   rowKey: string; initialRow: TargetRow; t: ReturnType<typeof getT>
   onUpdate: (key: string, field: string, val: string | number | null) => void
 }) {
-  const [score, setScore] = useState(initialRow.score !== null && !isNaN(initialRow.score as number) ? String(initialRow.score) : '')
-  const [evid,  setEvid]  = useState(initialRow.evidence)
-  const [gap,   setGap]   = useState(initialRow.gapIdentified)
-  const [need,  setNeed]  = useState(initialRow.capacityNeed)
+  // Guard initialRow.score — never let NaN into the input
+  const safeScore = initialRow.score !== null && !isNaN(initialRow.score as number)
+    ? String(initialRow.score)
+    : ''
+
+  const [score, setScore] = useState(safeScore)
+  const [evid,  setEvid]  = useState(initialRow.evidence  ?? '')
+  const [gap,   setGap]   = useState(initialRow.gapIdentified ?? '')
+  const [need,  setNeed]  = useState(initialRow.capacityNeed  ?? '')
+
+  // Sync if parent data changes (e.g. loaded from DB)
+  useEffect(() => {
+    setScore(initialRow.score !== null && !isNaN(initialRow.score as number) ? String(initialRow.score) : '')
+  }, [initialRow.score])
+  useEffect(() => { setEvid(initialRow.evidence        ?? '') }, [initialRow.evidence])
+  useEffect(() => { setGap(initialRow.gapIdentified    ?? '') }, [initialRow.gapIdentified])
+  useEffect(() => { setNeed(initialRow.capacityNeed    ?? '') }, [initialRow.capacityNeed])
 
   function flushScore(val: string) {
-    if (val === '') { onUpdate(rowKey, 'score', null); return }
+    if (val === '' || val === undefined) { onUpdate(rowKey, 'score', null); return }
     const n = parseInt(val, 10)
-    if (!isNaN(n)) onUpdate(rowKey, 'score', Math.min(5, Math.max(0, n)))
+    if (isNaN(n)) { onUpdate(rowKey, 'score', null); return }
+    onUpdate(rowKey, 'score', Math.min(5, Math.max(0, n)))
   }
 
-  const sc = initialRow.score
+  const sc = safeAvg(initialRow.score)
   return (
     <>
       <td>
         <input className="ti-score" type="number" min={0} max={5} step={1}
-          value={score} onChange={e => setScore(e.target.value)} onBlur={e => flushScore(e.target.value)}
-          placeholder="0–5" style={sc !== null ? { borderColor:scoreColor(sc), color:scoreColor(sc) } : {}}/>
+          value={score}
+          onChange={e => setScore(e.target.value)}
+          onBlur={e  => flushScore(e.target.value)}
+          placeholder="0–5"
+          style={sc !== null ? { borderColor: scoreColor(sc), color: scoreColor(sc) } : {}}/>
       </td>
-      <td><textarea className="ti" rows={2} style={{resize:'none'}} value={evid} onChange={e => setEvid(e.target.value)} onBlur={e => onUpdate(rowKey,'evidence',e.target.value)} placeholder={t.common.evidence}/></td>
+      <td><textarea className="ti" rows={2} style={{resize:'none'}} value={evid} onChange={e => setEvid(e.target.value)} onBlur={e => onUpdate(rowKey,'evidence',e.target.value)}      placeholder={t.common.evidence}/></td>
       <td><textarea className="ti" rows={2} style={{resize:'none'}} value={gap}  onChange={e => setGap(e.target.value)}  onBlur={e => onUpdate(rowKey,'gapIdentified',e.target.value)} placeholder={t.common.gap}/></td>
-      <td><textarea className="ti" rows={2} style={{resize:'none'}} value={need} onChange={e => setNeed(e.target.value)} onBlur={e => onUpdate(rowKey,'capacityNeed',e.target.value)} placeholder="Need…"/></td>
+      <td><textarea className="ti" rows={2} style={{resize:'none'}} value={need} onChange={e => setNeed(e.target.value)} onBlur={e => onUpdate(rowKey,'capacityNeed',e.target.value)}  placeholder="Need…"/></td>
     </>
   )
 })
@@ -51,59 +74,38 @@ export default function TargetsPage() {
 
   const [assignedNums, setAssignedNums] = useState<number[] | null>(null)
 
-  // Load which targets are assigned to this institution
   useEffect(() => {
-    if (!user?.institution_id) {
-      setAssignedNums([]) // no institution — show nothing assigned
-      return
-    }
+    if (!user?.institution_id) { setAssignedNums(null); return }
     supabase
       .from('institution_targets')
       .select('target_num')
       .eq('institution_id', user.institution_id)
       .then(({ data }) => {
-        if (data && data.length > 0) {
-          setAssignedNums(data.map(r => r.target_num))
-        } else {
-          // No assignments configured yet — show all as available (fallback)
-          setAssignedNums(null)
-        }
+        setAssignedNums(data && data.length > 0 ? data.map(r => r.target_num) : null)
       })
   }, [user?.institution_id])
 
-  // Determine if a target is accessible
-  // null = no assignments configured = all available (admin hasn't set up yet)
   const isAssigned = (num: number) => assignedNums === null || assignedNums.includes(num)
 
-  // When active target is not assigned, move to first assigned one
   useEffect(() => {
-    if (assignedNums === null || assignedNums.length === 0) return
-    if (!assignedNums.includes(activeTarget)) {
-      setActiveTarget(assignedNums[0])
-    }
+    if (!assignedNums || assignedNums.length === 0) return
+    if (!assignedNums.includes(activeTarget)) setActiveTarget(assignedNums[0])
   }, [assignedNums])
 
-  const tData = targets.find(x => x.num === activeTarget) ?? targets[0]
+  const tData  = targets.find(x => x.num === activeTarget) ?? targets[0]
+  const list   = assignedNums ?? targets.map(t => t.num)
+  const curIdx = list.indexOf(activeTarget)
+  const hasPrev = curIdx > 0
+  const hasNext = curIdx < list.length - 1
 
   const handleUpdate = useCallback((key: string, field: string, val: string | number | null) => {
     updateTargetRow(key, field, val)
   }, [updateTargetRow])
 
-  // Next/prev that skips unassigned targets
-  function prevAssigned() {
-    const list = assignedNums ?? targets.map(t => t.num)
-    const cur  = list.indexOf(activeTarget)
-    if (cur > 0) setActiveTarget(list[cur - 1])
+  // Safe avg for a target — guards NaN at display level too
+  function avg(tNum: number, indicators: string[]): number | null {
+    return safeAvg(getTargetAvg(assessment, tNum, indicators))
   }
-  function nextAssigned() {
-    const list = assignedNums ?? targets.map(t => t.num)
-    const cur  = list.indexOf(activeTarget)
-    if (cur < list.length - 1) setActiveTarget(list[cur + 1])
-  }
-  const list      = assignedNums ?? targets.map(t => t.num)
-  const curIdx    = list.indexOf(activeTarget)
-  const hasPrev   = curIdx > 0
-  const hasNext   = curIdx < list.length - 1
 
   return (
     <div className="fade-in">
@@ -122,30 +124,11 @@ export default function TargetsPage() {
         </div>
       </div>
 
-      {/* Target selector grid */}
+      {/* Target selector grid — only assigned targets shown */}
       <div className="grid grid-cols-2 gap-2 mb-5">
         {targets.filter(target => isAssigned(target.num)).map(target => {
-          const avg      = getTargetAvg(assessment, target.num, target.indicators)
-          const active   = activeTarget === target.num
-          const assigned = isAssigned(target.num)
-
-          // Greyed out — not assigned to this institution
-          if (!assigned) {
-            return (
-              <div key={target.num}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left"
-                style={{ background:'#f6f3ee', borderColor:'#e8e3da', color:'#b8b3aa', cursor:'not-allowed', opacity:0.5 }}>
-                <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold"
-                  style={{ background:'#e8e3da', color:'#b8b3aa' }}>
-                  {target.num}
-                </span>
-                <span className="text-[12px] font-medium leading-tight flex-1">{target.title}</span>
-                <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color:'#b8b3aa' }}>N/A</span>
-              </div>
-            )
-          }
-
-          // Active assigned target
+          const score  = avg(target.num, target.indicators)
+          const active = activeTarget === target.num
           return (
             <button key={target.num} onClick={() => setActiveTarget(target.num)}
               className="flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all"
@@ -156,13 +139,19 @@ export default function TargetsPage() {
                 boxShadow:   active ? '0 4px 16px rgba(15,45,28,.2)' : 'none',
               }}>
               <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold"
-                style={{ background:active?'rgba(255,255,255,.15)':'#d8f3dc', color:active?'white':'#1b4332' }}>
+                style={{ background: active ? 'rgba(255,255,255,.15)' : '#d8f3dc', color: active ? 'white' : '#1b4332' }}>
                 {target.num}
               </span>
               <span className="text-[12px] font-medium leading-tight flex-1">{target.title}</span>
-              {avg !== null
-                ? <span className="text-[11px] font-bold" style={{ color:active?'white':scoreColor(avg) }}>{avg.toFixed(1)}</span>
-                : <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color:active?'rgba(255,255,255,.5)':'#52b788' }}>assigned</span>
+              {/* Only show score if it's a real number */}
+              {score !== null
+                ? <span className="text-[11px] font-bold" style={{ color: active ? 'white' : scoreColor(score) }}>
+                    {score.toFixed(1)}
+                  </span>
+                : <span className="text-[9px] font-bold uppercase tracking-wide"
+                    style={{ color: active ? 'rgba(255,255,255,.4)' : '#95d5b2' }}>
+                    not scored
+                  </span>
               }
             </button>
           )
@@ -176,7 +165,8 @@ export default function TargetsPage() {
             <div className="card-title mb-1">🎯 Target {tData.num}: {tData.title}</div>
             <p className="text-[12.5px] text-forest-400 leading-relaxed">{tData.desc}</p>
           </div>
-          <ScoreChip value={getTargetAvg(assessment, tData.num, tData.indicators)}/>
+          {/* ScoreChip safely handles null */}
+          <ScoreChip value={avg(tData.num, tData.indicators)}/>
         </div>
         <div className="rounded-xl overflow-hidden border border-sand-300">
           <table className="dt w-full">
@@ -192,11 +182,13 @@ export default function TargetsPage() {
             <tbody>
               {tData.indicators.map((ind, i) => {
                 const key     = `t${tData.num}_${i}`
-                const initRow = targetRows[key] ?? { score:null, evidence:'', gapIdentified:'', capacityNeed:'' }
+                const initRow = targetRows[key] ?? { score: null, evidence: '', gapIdentified: '', capacityNeed: '' }
+                // Guard: never pass NaN score into the row
+                const safeRow = { ...initRow, score: safeAvg(initRow.score as any) }
                 return (
                   <tr key={key}>
                     <td className="text-[12.5px] leading-snug align-top pt-2.5">{ind}</td>
-                    <TargetRowInputs rowKey={key} initialRow={initRow} onUpdate={handleUpdate} t={t}/>
+                    <TargetRowInputs rowKey={key} initialRow={safeRow} onUpdate={handleUpdate} t={t}/>
                   </tr>
                 )
               })}
@@ -204,18 +196,18 @@ export default function TargetsPage() {
           </table>
         </div>
 
-        {/* Navigation — only moves between assigned targets */}
+        {/* Navigation */}
         <div className="flex items-center justify-between mt-4 pt-3 border-t border-forest-50">
-          <button className="btn btn-ghost px-6 py-3 text-md rounded-xl"
-            disabled={!hasPrev} onClick={prevAssigned}>
-            ← T{hasPrev ? list[curIdx-1] : ''}
+          <button className="btn btn-ghost px-6 py-3 rounded-xl"
+            disabled={!hasPrev} onClick={() => hasPrev && setActiveTarget(list[curIdx - 1])}>
+            ← {hasPrev ? `T${list[curIdx - 1]}` : ''}
           </button>
           <span className="text-[13px] text-forest-400">
-            Target {tData.num} · {curIdx+1} of {list.length} assigned
+            Target {tData.num} · {curIdx + 1} of {list.length} assigned
           </span>
-          <button className="btn btn-ghost px-6 py-3 text-md rounded-xl"
-            disabled={!hasNext} onClick={nextAssigned}>
-            T{hasNext ? list[curIdx+1] : ''} →
+          <button className="btn btn-ghost px-6 py-3 rounded-xl"
+            disabled={!hasNext} onClick={() => hasNext && setActiveTarget(list[curIdx + 1])}>
+            {hasNext ? `T${list[curIdx + 1]}` : ''} →
           </button>
         </div>
       </div>
