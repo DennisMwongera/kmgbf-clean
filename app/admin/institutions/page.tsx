@@ -20,14 +20,18 @@ export default function InstitutionsPage() {
   const [error,    setError]   = useState('')
   const [search,   setSearch]  = useState('')
   const [form, setForm] = useState({ name:'', type:'', level:'', country:'', mandate:'', focal_name:'', focal_title:'', focal_email:'' })
+  const [deleted, setDeleted] = useState<Institution[]>([])
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('institutions').select('*').order('name')
-    if (data) {
-      const enriched = await Promise.all(data.map(async inst => {
+    const [{ data: active }, { data: archived }] = await Promise.all([
+      supabase.from('institutions').select('*').is('deleted_at', null).order('name'),
+      supabase.from('institutions').select('*').not('deleted_at', 'is', null).order('name'),
+    ])
+    if (active) {
+      const enriched = await Promise.all(active.map(async inst => {
         const [{ count: uc }, { count: ac }] = await Promise.all([
           supabase.from('user_profiles').select('*', { count:'exact', head:true }).eq('institution_id', inst.id),
           supabase.from('assessments').select('*', { count:'exact', head:true }).eq('institution_id', inst.id),
@@ -36,6 +40,7 @@ export default function InstitutionsPage() {
       }))
       setInsts(enriched)
     }
+    setDeleted(archived ?? [])
     setLoading(false)
   }
 
@@ -55,9 +60,19 @@ export default function InstitutionsPage() {
     setSaving(false)
   }
 
+  async function restoreInst(id: string, name: string) {
+    if (!confirm(`Restore "${name}"? It will become active again.`)) return
+    await supabase.rpc('restore_institution', { p_institution_id: id })
+    const inst = deleted.find(i => i.id === id)
+    if (inst) {
+      setDeleted(prev => prev.filter(i => i.id !== id))
+      setInsts(prev => [...prev, inst].sort((a,b) => a.name.localeCompare(b.name)))
+    }
+  }
+
   async function deleteInst(id: string, name: string) {
-    if (!confirm(`Delete "${name}"? This will also delete all assessments and user links. This cannot be undone.`)) return
-    await supabase.from('institutions').delete().eq('id', id)
+    if (!confirm(`Archive "${name}"?\n\nThe institution and all its data will be hidden but not permanently deleted. An admin can restore it later.`)) return
+    await supabase.rpc('soft_delete_institution', { p_institution_id: id })
     await load()
   }
 
@@ -99,7 +114,7 @@ export default function InstitutionsPage() {
       {/* Create form */}
       {showForm && (
         <div className="card mb-6">
-          <div className="card-title">🏛️ Create Institution</div>
+          <div className="card-title">Create Institution</div>
           {error && <div className="mb-4 p-3 rounded-xl text-[13px]" style={{ background:'#fee2e2', color:'#dc2626' }}>{error}</div>}
           <div className="grid grid-cols-2 gap-3.5 mb-4">
             <F label="Institution Name *" k="name" full/>
@@ -142,7 +157,7 @@ export default function InstitutionsPage() {
         <div className="flex items-center justify-center py-20 text-forest-400">Loading…</div>
       ) : filtered.length === 0 ? (
         <div className="card text-center py-14">
-          <div className="text-4xl mb-3">🏛️</div>
+          <div className="text-4xl mb-3"></div>
           <p className="text-forest-400">{search ? 'No institutions match your search.' : 'No institutions yet. Create one above.'}</p>
         </div>
       ) : (
@@ -173,8 +188,37 @@ export default function InstitutionsPage() {
                     <td>
                       <div className="flex gap-1.5">
                         <Link href={`/admin/institutions/${inst.id}`} className="btn btn-ghost btn-sm">View</Link>
-                        <button className="btn btn-danger btn-sm" onClick={() => deleteInst(inst.id, inst.name)}>Delete</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => deleteInst(inst.id, inst.name)}>Archive</button>
                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {/* Archived institutions */}
+      {deleted.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-[13px] font-bold text-forest-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+            🗂️ Archived Institutions ({deleted.length})
+          </h3>
+          <div className="rounded-xl overflow-hidden border border-sand-300">
+            <table className="rt w-full">
+              <thead><tr><th>Institution</th><th>Type</th><th>Level</th><th></th></tr></thead>
+              <tbody>
+                {deleted.map(inst => (
+                  <tr key={inst.id} style={{ opacity: 0.6 }}>
+                    <td>
+                      <div className="font-semibold text-[12.5px] text-forest-400 line-through">{inst.name}</div>
+                    </td>
+                    <td className="text-[11px] text-forest-300">{inst.type ?? '—'}</td>
+                    <td className="text-[11px] text-forest-300">{inst.level ?? '—'}</td>
+                    <td>
+                      <button className="btn btn-ghost btn-sm" onClick={() => restoreInst(inst.id, inst.name)}>
+                        ↩ Restore
+                      </button>
                     </td>
                   </tr>
                 ))}
