@@ -2,8 +2,9 @@ import { CORE_QUESTIONS, DIMENSIONS, KMGBF_TARGETS, DEFAULT_REQUIRED, type Asses
 
 export function makeAssessment(): Assessment {
   return {
-    id: null,
-    status: null,
+    id:      null,
+    version: null,
+    status:  null,
     profile: { name:'', type:'', level:'', mandate:'', scope:'', focalName:'', focalTitle:'', focalEmail:'', assessDate: new Date().toISOString().slice(0,10) },
     coreRows: CORE_QUESTIONS.map(q => ({ score:null, evidence:'', gap:'', capacityType: defaultCapacityType(q.section), priority:'', suggestedSupport:'' })),
     targetRows: {},

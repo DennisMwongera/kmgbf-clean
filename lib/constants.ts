@@ -30,7 +30,9 @@ export interface CdpRow {
 }
 
 export interface Assessment {
-  id: string | null          // Supabase UUID once saved
+  id:      string | null     // Supabase UUID once saved
+  version: number | null        // incremented on every DB save — used for conflict detection
+  status:  'draft' | 'in_progress' | 'completed' | 'submitted' | 'approved' | null
   profile: InstitutionProfile
   coreRows: CoreRow[]
   targetRows: Record<string, TargetRow>
