@@ -49,7 +49,7 @@ export default function Topbar() {
           institution_id: user.institution_id,
           created_by:     user.id,
           assess_date:    assessment.profile.assessDate || new Date().toISOString().slice(0,10),
-          status:         'in_progress',
+          status: ['submitted','in_review','approved'].includes(assessment.status ?? '') ? assessment.status : 'in_progress',
         })
         .select('id, version')
         .single()
