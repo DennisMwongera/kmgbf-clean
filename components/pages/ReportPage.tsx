@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useState, useEffect, useRef } from 'react'
 import { downloadCanvasAsImage, downloadCSV, downloadXLSX } from '@/lib/exportUtils'
 import ExportMenu from '@/components/ExportMenu'
-import { Printer, BarChart2, Radar, Target, ClipboardList, FileText, PieChart, Table2 } from 'lucide-react'
+import { Printer, BarChart2, Radar, Target, ClipboardList, FileText, PieChart, Table2, CheckCircle2, Send, Eye } from 'lucide-react'
 import { Chart, BarController, CategoryScale, LinearScale, BarElement, RadarController, RadialLinearScale, PointElement, LineElement, Filler, Tooltip, PieController, ArcElement, Legend } from 'chart.js'
 
 Chart.register(BarController, CategoryScale, LinearScale, BarElement, RadarController, RadialLinearScale, PointElement, LineElement, Filler, Tooltip, PieController, ArcElement, Legend)
@@ -199,6 +199,7 @@ export default function ReportPage() {
   const PC: Record<string,any> = { Low:{bg:'#dcfce7',color:'#15803d'}, Med:{bg:'#fef3c7',color:'#d97706'}, High:{bg:'#fee2e2',color:'#dc2626'} }
 
   const [assignedNums, setAssignedNums] = useState<number[] | null>(null)
+  const [submitting, setSubmitting]   = useState(false)
   const pieRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -207,6 +208,23 @@ export default function ReportPage() {
       .eq('institution_id', user.institution_id)
       .then(({ data }) => { if (data && data.length > 0) setAssignedNums(data.map(r => r.target_num)) })
   }, [user?.institution_id])
+
+  async function submitAssessment() {
+    if (!assessment.id) { alert('Please save your assessment first before submitting.'); return }
+    if (!confirm('Submit this assessment? It will be marked as submitted and locked from further edits.')) return
+    setSubmitting(true)
+    await supabase.from('assessments').update({ status: 'submitted' }).eq('id', assessment.id)
+    setAssessment({ ...assessment, status: 'submitted' })
+    setSubmitting(false)
+  }
+
+  async function reopenAssessment() {
+    if (!assessment.id) return
+    await supabase.from('assessments').update({ status: 'in_progress' }).eq('id', assessment.id)
+    setAssessment({ ...assessment, status: 'in_progress' })
+  }
+
+  const isSubmitted = ['submitted','in_review','approved'].includes(assessment.status ?? '')
 
   const { barRef, radarRef, targetRef, dimBarExports, radarExports, targetBarExports, coreExports, targetTableExports, cdpExports, summaryTableExports } = useReportExports(assessment, dimScores, assignedNums)
 
@@ -235,9 +253,36 @@ export default function ReportPage() {
                 <h3 style={{fontFamily:'var(--font-display)',fontSize:22,fontWeight:700,color:'#0f2d1c',marginBottom:4}}>KMGBF Capacity Assessment Summary</h3>
                 <p className="text-[13px] text-forest-400">{p.name||'—'} · {p.level||'—'} · {p.assessDate||'—'}</p>
               </div>
-              <button className="btn btn-ghost flex items-center gap-1.5" onClick={()=>setTimeout(()=>window.print(),50)}>
-                <Printer size={13}/> Print
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Status badge */}
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold"
+                  style={{
+                    background: assessment.status==='approved' ? '#d8f3dc' : assessment.status==='in_review' ? '#ede9fe' : assessment.status==='submitted' ? '#dbeafe' : assessment.status==='in_progress' ? '#fef3c7' : '#f3f4f6',
+                    color:      assessment.status==='approved' ? '#1b4332' : assessment.status==='in_review' ? '#6d28d9' : assessment.status==='submitted' ? '#1d4ed8' : assessment.status==='in_progress' ? '#d97706' : '#6b7280',
+                  }}>
+                  {assessment.status==='approved'    && <><CheckCircle2 size={12}/> Approved</>}
+                  {assessment.status==='in_review'   && <><Eye size={12}/> In Review</>}
+                  {assessment.status==='submitted'   && <><Send size={12}/> Submitted</>}
+                  {assessment.status==='in_progress' && '⏳ In Progress'}
+                  {assessment.status==='completed'   && '✓ Completed'}
+                  {!assessment.status                && '— Draft'}
+                </span>
+                {/* Submit / Reopen */}
+                {!isSubmitted ? (
+                  <button className="btn btn-primary flex items-center gap-1.5"
+                    onClick={submitAssessment} disabled={submitting || !assessment.id}>
+                    {submitting ? 'Submitting…' : <><Send size={13}/> Submit Assessment</>}
+                  </button>
+                ) : (
+                  <button className="btn btn-ghost btn-sm flex items-center gap-1.5"
+                    onClick={reopenAssessment} style={{color:'#d97706'}}>
+                    ↩ Reopen
+                  </button>
+                )}
+                <button className="btn btn-ghost flex items-center gap-1.5" onClick={()=>setTimeout(()=>window.print(),50)}>
+                  <Printer size={13}/> Print
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-6">
               <table className="w-full text-[13px]"><tbody>

@@ -9,7 +9,7 @@ const LEVELS = ['National','Regional','Local','International']
 interface Institution {
   id: string; name: string; type: string|null; level: string|null
   country: string|null; focal_email: string|null; created_at: string
-  user_count?: number; assessment_count?: number
+  user_count?: number; assessment_count?: number; latest_status?: string
 }
 
 export default function InstitutionsPage() {
@@ -36,7 +36,13 @@ export default function InstitutionsPage() {
           supabase.from('user_profiles').select('*', { count:'exact', head:true }).eq('institution_id', inst.id),
           supabase.from('assessments').select('*', { count:'exact', head:true }).eq('institution_id', inst.id),
         ])
-        return { ...inst, user_count: uc??0, assessment_count: ac??0 }
+        const { data: latestAssessArr } = await supabase
+          .from('assessments')
+          .select('status')
+          .eq('institution_id', inst.id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+        return { ...inst, user_count: uc??0, assessment_count: ac??0, latest_status: latestAssessArr?.[0]?.status ?? null }
       }))
       setInsts(enriched)
     }
@@ -165,7 +171,7 @@ export default function InstitutionsPage() {
           <div className="rounded-xl overflow-hidden border border-sand-300">
             <table className="rt w-full">
               <thead>
-                <tr><th>Institution</th><th>Type</th><th>Level</th><th>Country</th><th>Users</th><th>Assessments</th><th>Actions</th></tr>
+                <tr><th>Institution</th><th>Type</th><th>Level</th><th>Country</th><th>Users</th><th>Assessments</th><th>Status</th><th>Actions</th></tr>
               </thead>
               <tbody>
                 {filtered.map(inst => (
@@ -184,6 +190,23 @@ export default function InstitutionsPage() {
                     <td>
                       <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold"
                         style={{ background:'#dbeafe', color:'#1d4ed8' }}>{inst.assessment_count}</span>
+                      </td>
+                      <td>
+                        {inst.latest_status && (
+                          <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{
+                            background:
+                              inst.latest_status === 'approved'    ? '#d8f3dc' :
+                              inst.latest_status === 'submitted'   ? '#dbeafe' :
+                              inst.latest_status === 'in_progress' ? '#fef3c7' : '#f3f4f6',
+                            color:
+                              inst.latest_status === 'approved'    ? '#1b4332' :
+                              inst.latest_status === 'submitted'   ? '#1d4ed8' :
+                              inst.latest_status === 'in_progress' ? '#d97706' : '#6b7280',
+                          }}>
+                            {inst.latest_status.replace('_',' ')}
+                          </span>
+                        )}
+                        {!inst.latest_status && <span className="text-[10.5px] text-forest-300">—</span>}
                     </td>
                     <td>
                       <div className="flex gap-1.5">

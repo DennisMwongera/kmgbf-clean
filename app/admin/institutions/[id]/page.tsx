@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Eye } from 'lucide-react'
+import { Eye, CheckCircle2, RotateCcw, XCircle } from 'lucide-react'
 
 const ROLES = ['admin','institution_lead','contributor','viewer']
 const ROLE_COLORS: Record<string,{bg:string;text:string}> = {
@@ -89,11 +89,17 @@ export default function InstitutionDetailPage() {
     await load()
   }
 
+  async function changeAssessmentStatus(assessmentId: string, newStatus: string) {
+    await supabase.from('assessments').update({ status: newStatus }).eq('id', assessmentId)
+    setAssessments(prev => prev.map(a => a.id === assessmentId ? { ...a, status: newStatus } : a))
+  }
+
   const STATUS_STYLE: Record<string,{bg:string;text:string}> = {
     draft:       { bg:'#f3f4f6', text:'#6b7280' },
     in_progress: { bg:'#fef3c7', text:'#d97706' },
     completed:   { bg:'#d1fae5', text:'#047857' },
     submitted:   { bg:'#dbeafe', text:'#1d4ed8' },
+    in_review:   { bg:'#ede9fe', text:'#6d28d9' },
     approved:    { bg:'#d8f3dc', text:'#1b4332' },
   }
 
@@ -185,14 +191,68 @@ export default function InstitutionDetailPage() {
               {assessments.map(a => {
                 const ss = STATUS_STYLE[a.status] ?? STATUS_STYLE.draft
                 return (
-                  <div key={a.id} className="flex items-center gap-2.5 p-2.5 rounded-xl border border-sand-300">
-                    <div className="flex-1">
-                      <div className="text-[12.5px] font-semibold text-forest-700">{a.assess_date}</div>
-                      <div className="text-[11px] text-forest-400">{new Date(a.updated_at).toLocaleDateString()}</div>
+                  <div key={a.id} className="p-2.5 rounded-xl border border-sand-300 space-y-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex-1">
+                        <div className="text-[12.5px] font-semibold text-forest-700">{a.assess_date || '—'}</div>
+                        <div className="text-[11px] text-forest-400">Updated {new Date(a.updated_at).toLocaleDateString()}</div>
+                      </div>
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background:ss.bg, color:ss.text }}>
+                        {a.status.replace('_',' ')}
+                      </span>
                     </div>
-                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background:ss.bg, color:ss.text }}>
-                      {a.status.replace('_',' ')}
-                    </span>
+                    {/* Admin action buttons */}
+                    <div className="flex gap-1.5 flex-wrap">
+                      {a.status === 'submitted' && (
+                        <>
+                          <button
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors"
+                            style={{ background:'#ede9fe', color:'#6d28d9' }}
+                            onClick={() => changeAssessmentStatus(a.id, 'in_review')}>
+                            <Eye size={11}/> Mark in Review
+                          </button>
+                          <button
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors"
+                            style={{ background:'#d8f3dc', color:'#1b4332' }}
+                            onClick={() => changeAssessmentStatus(a.id, 'approved')}>
+                            <CheckCircle2 size={11}/> Approve
+                          </button>
+                        </>
+                      )}
+                      {a.status === 'in_review' && (
+                        <button
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors"
+                          style={{ background:'#d8f3dc', color:'#1b4332' }}
+                          onClick={() => changeAssessmentStatus(a.id, 'approved')}>
+                          <CheckCircle2 size={11}/> Approve
+                        </button>
+                      )}
+                      {a.status === 'approved' && (
+                        <button
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors"
+                          style={{ background:'#fef3c7', color:'#d97706' }}
+                          onClick={() => changeAssessmentStatus(a.id, 'submitted')}>
+                          <RotateCcw size={11}/> Revoke approval
+                        </button>
+                      )}
+                      {(a.status === 'submitted' || a.status === 'in_review' || a.status === 'approved') && (
+                        <button
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors"
+                          style={{ background:'#fee2e2', color:'#dc2626' }}
+                          onClick={() => {
+                            if (confirm('Send back for revision? The institution will be able to edit again.'))
+                              changeAssessmentStatus(a.id, 'in_progress')
+                          }}>
+                          <XCircle size={11}/> Send back
+                        </button>
+                      )}
+                      {a.status === 'in_progress' && (
+                        <span className="text-[10.5px] text-forest-300 italic">In progress — awaiting submission</span>
+                      )}
+                      {a.status === 'draft' && (
+                        <span className="text-[10.5px] text-forest-300 italic">Draft — not yet started</span>
+                      )}
+                    </div>
                   </div>
                 )
               })}
