@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase/client'
 import { loadInstitutionAssessment } from '@/lib/supabase/api'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
+import IdleTimeout from './IdleTimeout'
 import DashboardPage  from './pages/DashboardPage'
 import ProfilePage    from './pages/ProfilePage'
 import CorePage       from './pages/CorePage'
@@ -56,8 +57,45 @@ export default function AppShell() {
 
       // Auto-load institution's assessment so all team members see the same data
       if (profile?.institution_id) {
-        const assessment = await loadInstitutionAssessment(profile.institution_id)
-        if (assessment) setAssessment(assessment)
+        const dbAssessment = await loadInstitutionAssessment(profile.institution_id)
+        if (dbAssessment) {
+          // Merge: DB is authoritative, but preserve any localStorage data
+          // for rows that are blank in DB (protects against partial saves)
+          const local = useStore.getState().assessment
+
+          // Merge coreRows — prefer DB score/text, but keep local if DB row is empty
+          const mergedCoreRows = dbAssessment.coreRows.map((dbRow, i) => {
+            const localRow = local.coreRows[i]
+            if (!localRow) return dbRow
+            // If DB has no data for this row but local does, keep local
+            const dbHasData = dbRow.score !== null || dbRow.evidence || dbRow.gap
+            if (!dbHasData && (localRow.score !== null || localRow.evidence || localRow.gap)) {
+              return localRow
+            }
+            return dbRow
+          })
+
+          // Merge targetRows — prefer DB, keep local for keys DB doesn't have
+          const mergedTargetRows = { ...local.targetRows, ...dbAssessment.targetRows }
+
+          // Merge priorityRows — prefer DB if any exist, else keep local
+          const mergedPriorityRows = dbAssessment.priorityRows.length > 0
+            ? dbAssessment.priorityRows
+            : local.priorityRows
+
+          // Merge cdpRows — prefer DB if any exist, else keep local
+          const mergedCdpRows = dbAssessment.cdpRows.length > 0
+            ? dbAssessment.cdpRows
+            : local.cdpRows
+
+          setAssessment({
+            ...dbAssessment,
+            coreRows:     mergedCoreRows,
+            targetRows:   mergedTargetRows,
+            priorityRows: mergedPriorityRows,
+            cdpRows:      mergedCdpRows,
+          })
+        }
       }
 
       setDataLoading(false)
@@ -105,6 +143,7 @@ export default function AppShell() {
       )}
 
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
+      <IdleTimeout/>
     </div>
   )
 }
