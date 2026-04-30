@@ -42,7 +42,9 @@ export async function loadInstitutionAssessment(institutionId: string): Promise<
   // No assessment saved yet — return blank with profile prefilled
   if (!assessment) return blank
 
-  blank.id = assessment.id
+  blank.id      = assessment.id
+  blank.version = assessment.version ?? null
+  blank.status  = assessment.status ?? 'in_progress'
 
   // 3. Load core responses
   const { data: coreRows } = await supabase

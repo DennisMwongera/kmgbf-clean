@@ -19,7 +19,29 @@ export default function Topbar() {
     if (!user.institution_id) { notify(t.topbar.noInstitution); return }
     setSaving(true)
     try {
-      // ── 1. Upsert assessment record ───────────────────────
+      // ── 1. Optimistic lock check ──────────────────────────
+      if (assessment.id && assessment.version !== null) {
+        const { data: current } = await supabase
+          .from('assessments')
+          .select('version')
+          .eq('id', assessment.id)
+          .single()
+        if (current && current.version !== assessment.version) {
+          const reload = confirm(
+            'Someone else on your team saved this assessment while you were editing.\n\n' +
+            'Click OK to reload their latest version (your unsaved changes will be kept in your browser).\n' +
+            'Click Cancel to force-save your version over theirs.'
+          )
+          if (reload) {
+            const refreshed = await loadInstitutionAssessment(user.institution_id)
+            if (refreshed) setAssessment(refreshed)
+            setSaving(false)
+            return
+          }
+        }
+      }
+
+      // ── 2. Upsert assessment record ───────────────────────
       const { data: aData, error: aErr } = await supabase
         .from('assessments')
         .upsert({
@@ -27,14 +49,15 @@ export default function Topbar() {
           institution_id: user.institution_id,
           created_by:     user.id,
           assess_date:    assessment.profile.assessDate || new Date().toISOString().slice(0,10),
-          status: 'in_progress',
+          status:         'in_progress',
         })
-        .select('id')
+        .select('id, version')
         .single()
       if (aErr) throw aErr
-      const aid = aData.id
+      const aid     = aData.id
+      const version = aData.version
 
-      // ── 2. Core responses (upsert by index) ───────────────
+      // ── 3. Core responses (upsert by index) ───────────────
       const coreUpserts = assessment.coreRows.map((r, i) => ({
         assessment_id:     aid,
         question_index:    i,
@@ -61,7 +84,7 @@ export default function Topbar() {
       }
       if (coreErr) throw coreErr
 
-      // ── 3. Target responses (upsert by target+indicator) ──
+      // ── 4. Target responses (upsert by target+indicator) ──
       const targetUpserts = Object.entries(assessment.targetRows).map(([key, row]) => {
         const [, tNum, iIdx] = key.match(/^t(\d+)_(\d+)$/) ?? []
         return {
@@ -88,7 +111,7 @@ export default function Topbar() {
         if (targErr) throw targErr
       }
 
-      // ── 4. Priority rows (delete + re-insert to preserve order) ──
+      // ── 5. Priority rows (delete + re-insert to preserve order) ──
       await supabase.from('priority_rows').delete().eq('assessment_id', aid)
       const activePriority = assessment.priorityRows.filter(r => r.capacityGap || r.urgency !== 3 || r.impact !== 3 || r.feasibility !== 3)
       if (activePriority.length) {
@@ -105,7 +128,7 @@ export default function Topbar() {
         if (prErr) throw prErr
       }
 
-      // ── 5. CDP rows (delete + re-insert to preserve order) ──
+      // ── 6. CDP rows (delete + re-insert to preserve order) ──
       await supabase.from('cdp_rows').delete().eq('assessment_id', aid)
       const activeCdp = assessment.cdpRows.filter(r => r.capacityGap || r.action)
       if (activeCdp.length) {
@@ -125,7 +148,7 @@ export default function Topbar() {
         if (cdpErr) throw cdpErr
       }
 
-      // ── 6. Required scores (upsert per dimension) ────────────
+      // ── 7. Required scores (upsert per dimension) ────────────
       const requiredUpserts = Object.entries(assessment.required).map(([dimension, score]) => ({
         assessment_id: aid,
         dimension,
@@ -137,7 +160,7 @@ export default function Topbar() {
           .upsert(requiredUpserts, { onConflict: 'assessment_id,dimension' })
       }
 
-      // ── 7. Institution profile ─────────────────────────────
+      // ── 8. Institution profile ─────────────────────────────
       const { error: instErr } = await supabase.from('institutions').update({
         name:        assessment.profile.name,
         type:        assessment.profile.type  as any,
@@ -152,8 +175,8 @@ export default function Topbar() {
 
       // Reload from DB to confirm all data persisted correctly
       const refreshed = await loadInstitutionAssessment(user.institution_id)
-      if (refreshed) setAssessment({ ...refreshed, id: aid })
-      else setAssessment({ ...assessment, id: aid })
+      if (refreshed) setAssessment({ ...refreshed, id: aid, version })
+      else setAssessment({ ...assessment, id: aid, version })
       notify(t.topbar.saved)
     } catch (e: any) {
       console.error('Save error:', e)
