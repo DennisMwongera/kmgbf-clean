@@ -27,7 +27,7 @@ export default function Topbar() {
           institution_id: user.institution_id,
           created_by:     user.id,
           assess_date:    assessment.profile.assessDate || new Date().toISOString().slice(0,10),
-          status:         'in_progress',
+          status: 'in_progress',
         })
         .select('id')
         .single()
@@ -125,7 +125,19 @@ export default function Topbar() {
         if (cdpErr) throw cdpErr
       }
 
-      // ── 6. Institution profile ─────────────────────────────
+      // ── 6. Required scores (upsert per dimension) ────────────
+      const requiredUpserts = Object.entries(assessment.required).map(([dimension, score]) => ({
+        assessment_id: aid,
+        dimension,
+        required_score: score,
+      }))
+      if (requiredUpserts.length) {
+        await supabase
+          .from('assessment_required_scores')
+          .upsert(requiredUpserts, { onConflict: 'assessment_id,dimension' })
+      }
+
+      // ── 7. Institution profile ─────────────────────────────
       const { error: instErr } = await supabase.from('institutions').update({
         name:        assessment.profile.name,
         type:        assessment.profile.type  as any,
@@ -163,14 +175,6 @@ export default function Topbar() {
         <span className="text-forest-400">KMGBF CNA</span>
         <span className="text-sand-300 mx-1">/</span>
         <span className="font-semibold text-forest-600">{PAGE_TITLES[activePage]}</span>
-        {assessment.id && (
-          <>
-            <span className="text-sand-300 mx-1">/</span>
-            <span className="text-[11px] text-forest-400" style={{ fontFamily: 'var(--font-mono)' }}>
-              {assessment.id.slice(0, 8)}…
-            </span>
-          </>
-        )}
       </div>
 
       <div className="flex items-center gap-2">
