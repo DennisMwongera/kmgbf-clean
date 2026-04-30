@@ -131,6 +131,7 @@ export default function AppShell() {
       <div className="flex flex-col flex-1" style={{ marginLeft: 'var(--sidebar-w)' }}>
         <Topbar />
         <main className="flex-1 px-8 py-6">
+          <AssessmentStatusBar/>
           <Page key={activePage} />
         </main>
       </div>
