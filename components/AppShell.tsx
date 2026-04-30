@@ -56,46 +56,40 @@ export default function AppShell() {
 
       if (profile) setUser(profile as any)
 
+      // Always wipe localStorage assessment when loading —
+      // then reload fresh from DB for the correct institution.
+      // This prevents stale data from a previous institution bleeding through.
+      try {
+        const stored = JSON.parse(localStorage.getItem('kmgbf-v2') ?? '{}')
+        const storedAssessmentId = stored?.state?.assessment?.id
+        // If we have a stored assessment but the institution doesn't match, clear it
+        if (storedAssessmentId && profile?.institution_id) {
+          // Check the stored assessment belongs to this institution
+          const { data: assessCheck } = await supabase
+            .from('assessments')
+            .select('institution_id')
+            .eq('id', storedAssessmentId)
+            .single()
+          if (assessCheck && assessCheck.institution_id !== profile.institution_id) {
+            localStorage.removeItem('kmgbf-v2')
+          }
+        } else if (!profile?.institution_id) {
+          // Admin with no institution — always clear
+          localStorage.removeItem('kmgbf-v2')
+        }
+      } catch { localStorage.removeItem('kmgbf-v2') }
+
       // Auto-load institution's assessment so all team members see the same data
-      if (profile?.institution_id) {
+      // Admins with no institution_id get a blank assessment — never show stale localStorage data
+      if (!profile?.institution_id) {
+        const { makeAssessment } = await import('@/lib/utils')
+        setAssessment(makeAssessment())
+      } else if (profile?.institution_id) {
         const dbAssessment = await loadInstitutionAssessment(profile.institution_id)
         if (dbAssessment) {
-          // Merge: DB is authoritative, but preserve any localStorage data
-          // for rows that are blank in DB (protects against partial saves)
-          const local = useStore.getState().assessment
-
-          // Merge coreRows — prefer DB score/text, but keep local if DB row is empty
-          const mergedCoreRows = dbAssessment.coreRows.map((dbRow, i) => {
-            const localRow = local.coreRows[i]
-            if (!localRow) return dbRow
-            // If DB has no data for this row but local does, keep local
-            const dbHasData = dbRow.score !== null || dbRow.evidence || dbRow.gap
-            if (!dbHasData && (localRow.score !== null || localRow.evidence || localRow.gap)) {
-              return localRow
-            }
-            return dbRow
-          })
-
-          // Merge targetRows — prefer DB, keep local for keys DB doesn't have
-          const mergedTargetRows = { ...local.targetRows, ...dbAssessment.targetRows }
-
-          // Merge priorityRows — prefer DB if any exist, else keep local
-          const mergedPriorityRows = dbAssessment.priorityRows.length > 0
-            ? dbAssessment.priorityRows
-            : local.priorityRows
-
-          // Merge cdpRows — prefer DB if any exist, else keep local
-          const mergedCdpRows = dbAssessment.cdpRows.length > 0
-            ? dbAssessment.cdpRows
-            : local.cdpRows
-
-          setAssessment({
-            ...dbAssessment,
-            coreRows:     mergedCoreRows,
-            targetRows:   mergedTargetRows,
-            priorityRows: mergedPriorityRows,
-            cdpRows:      mergedCdpRows,
-          })
+          // DB is the single source of truth — no localStorage merge
+          // The merge was causing cross-institution data bleed
+          setAssessment(dbAssessment)
         }
       }
 
