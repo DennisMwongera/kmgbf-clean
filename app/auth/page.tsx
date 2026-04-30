@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 
@@ -13,6 +13,22 @@ const ROLES = [
 
 interface Institution { id: string; name: string; type: string|null; level: string|null }
 
+// Isolated component so useSearchParams is inside a Suspense boundary
+function IdleBanner() {
+  const searchParams = useSearchParams()
+  if (searchParams.get('reason') !== 'idle') return null
+  return (
+    <div style={{
+      position:'fixed', top:16, left:'50%', transform:'translateX(-50%)',
+      background:'#fef3c7', border:'1px solid #fcd34d', borderRadius:10,
+      padding:'12px 20px', fontSize:13, color:'#92400e', zIndex:100,
+      boxShadow:'0 4px 12px rgba(0,0,0,.1)', whiteSpace:'nowrap',
+    }}>
+      ⏱ Your session expired due to inactivity. Please sign in again.
+    </div>
+  )
+}
+
 export default function AuthPage() {
   const [mode,         setMode]         = useState<Mode>('login')
   const [email,        setEmail]        = useState('')
@@ -25,9 +41,6 @@ export default function AuthPage() {
   const [info,         setInfo]         = useState('')
   const [loading,      setLoading]      = useState(false)
   const [instsLoading, setInstsLoading] = useState(false)
-
-  const searchParams = useSearchParams()
-  const idleExpired  = searchParams.get('reason') === 'idle'
 
   useEffect(() => {
     if (mode !== 'register') return
@@ -84,17 +97,10 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen flex" style={{ background:'#f6f3ee' }}>
 
-      {/* Idle timeout toast */}
-      {idleExpired && (
-        <div style={{
-          position:'fixed', top:16, left:'50%', transform:'translateX(-50%)',
-          background:'#fef3c7', border:'1px solid #fcd34d', borderRadius:10,
-          padding:'12px 20px', fontSize:13, color:'#92400e', zIndex:100,
-          boxShadow:'0 4px 12px rgba(0,0,0,.1)', whiteSpace:'nowrap',
-        }}>
-          ⏱ Your session expired due to inactivity. Please sign in again.
-        </div>
-      )}
+      {/* Idle timeout toast — Suspense required for useSearchParams */}
+      <Suspense fallback={null}>
+        <IdleBanner/>
+      </Suspense>
 
       {/* Left panel */}
       <div className="hidden lg:flex flex-col justify-between w-[400px] shrink-0 p-10" style={{ background:'#0f2d1c' }}>
