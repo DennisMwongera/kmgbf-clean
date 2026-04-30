@@ -10,7 +10,7 @@ import { exportNationalPDF } from '@/lib/pdfExport'
 import ExportMenu from '@/components/ExportMenu'
 import {
   Globe, Radar, BarChart2, Target, Download, Loader2,
-  Building2, ClipboardList, TrendingUp, ArrowRight, ChevronRight, FileDown
+  Building2, ClipboardList, TrendingUp, ArrowRight, ChevronRight, ChevronDown, FileDown
 } from 'lucide-react'
 
 Chart.register(RadarController, RadialLinearScale, PointElement, LineElement, Filler,
@@ -155,22 +155,45 @@ function SectionHeader({ icon: Icon, title, children }: { icon: React.ElementTyp
 
 // ─── Main page ─────────────────────────────────────────────────
 export default function AdminReportsPage() {
-  const [national,  setNational]  = useState<NationalReport | null>(null)
-  const [loading,   setLoading]   = useState(true)
-  const [activeTab, setActiveTab] = useState<typeof TABS[number]['id']>('overview')
-  const [selected,  setSelected]  = useState<InstitutionReport | null>(null)
+  const [allReports,   setAllReports]   = useState<InstitutionReport[]>([])
+  const [national,     setNational]     = useState<NationalReport | null>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [activeTab,    setActiveTab]    = useState<typeof TABS[number]['id']>('overview')
+  const [selected,     setSelected]     = useState<InstitutionReport | null>(null)
   const [exporting,    setExporting]    = useState(false)
   const [pdfExporting, setPdfExporting] = useState(false)
+  const [selectedIds,  setSelectedIds]  = useState<Set<string>>(new Set())
+  const [filterOpen,   setFilterOpen]   = useState(false)
   const nationalRadarRef = useRef<HTMLCanvasElement>(null)
   const multiBarRef      = useRef<HTMLCanvasElement>(null)
   const date             = new Date().toISOString().slice(0,10)
 
   useEffect(() => {
     loadAllInstitutionReports().then(reports => {
+      setAllReports(reports)
+      setSelectedIds(new Set(reports.map(r => r.institution.id)))
       setNational(buildNationalReport(reports))
       setLoading(false)
     })
   }, [])
+
+  function toggleInstitution(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) { if (next.size > 1) next.delete(id) } // keep at least one
+      else next.add(id)
+      return next
+    })
+  }
+
+  function applyFilter() {
+    const filtered = allReports.filter(r => selectedIds.has(r.institution.id))
+    setNational(buildNationalReport(filtered))
+    setFilterOpen(false)
+  }
+
+  function selectAll() { setSelectedIds(new Set(allReports.map(r => r.institution.id))) }
+  function clearAll()  { setSelectedIds(new Set([allReports[0]?.institution.id].filter(Boolean))) }
 
   async function handleExport() {
     if (!national) return
@@ -242,6 +265,76 @@ export default function AdminReportsPage() {
             <div className="text-[28px] text-forest-700" style={{ fontFamily:'var(--font-mono)', fontWeight:300 }}>{value}</div>
           </div>
         ))}
+      </div>
+
+      {/* Institution filter */}
+      <div className="mb-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setFilterOpen(v => !v)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border text-[12.5px] font-medium transition-all"
+            style={{
+              background: filterOpen ? '#1b4332' : 'white',
+              color:       filterOpen ? 'white' : '#374151',
+              borderColor: filterOpen ? '#1b4332' : '#e5e7eb',
+            }}>
+            <Building2 size={13}/>
+            Filter Institutions
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+              style={{ background: filterOpen ? 'rgba(255,255,255,.2)' : '#d8f3dc', color: filterOpen ? 'white' : '#1b4332' }}>
+              {selectedIds.size} / {allReports.length}
+            </span>
+            <ChevronDown size={12} style={{ transform: filterOpen ? 'rotate(180deg)' : 'none', transition:'transform 0.2s' }}/>
+          </button>
+          {selectedIds.size < allReports.length && (
+            <span className="text-[12px] text-amber-600 font-medium">
+              ⚠️ Report filtered — showing {selectedIds.size} of {allReports.length} institutions
+            </span>
+          )}
+        </div>
+
+        {filterOpen && (
+          <div className="mt-2 p-4 bg-white rounded-2xl border border-sand-300 shadow-lg"
+            style={{ boxShadow:'0 8px 24px rgba(0,0,0,.1)' }}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[12.5px] text-forest-500">Select which institutions to include in the national report:</p>
+              <div className="flex gap-2">
+                <button onClick={selectAll} className="btn btn-ghost btn-sm">Select all</button>
+                <button onClick={clearAll}  className="btn btn-ghost btn-sm">Clear</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-4 max-h-64 overflow-y-auto">
+              {allReports.map(r => (
+                <label key={r.institution.id}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl border cursor-pointer transition-all"
+                  style={{
+                    borderColor: selectedIds.has(r.institution.id) ? '#2d6a4f' : '#e8e3da',
+                    background:  selectedIds.has(r.institution.id) ? '#f0faf4' : 'white',
+                  }}>
+                  <input type="checkbox"
+                    checked={selectedIds.has(r.institution.id)}
+                    onChange={() => toggleInstitution(r.institution.id)}
+                    style={{ accentColor:'#2d6a4f' }}/>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] font-semibold text-forest-700 truncate">{r.institution.name}</div>
+                    <div className="text-[10px] text-forest-400">
+                      {r.institution.level ?? '—'} · {r.overallScore !== null ? r.overallScore.toFixed(2) : 'No data'}
+                    </div>
+                  </div>
+                  {r.overallScore !== null && (
+                    <span className="text-[11px] font-bold shrink-0"
+                      style={{ color: r.overallScore >= 3.5 ? '#047857' : r.overallScore >= 2 ? '#ca8a04' : '#dc2626' }}>
+                      {r.overallScore.toFixed(1)}
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+            <button onClick={applyFilter} className="btn btn-primary w-full justify-center">
+              Apply — Rebuild National Report
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tabs with Lucide icons */}
