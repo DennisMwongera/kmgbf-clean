@@ -43,7 +43,7 @@ interface Store {
   syncPriorityRows:  () => void
 
   // CDP
-  addCdpRow:    () => void
+  addCdpRow:    (capacityGap?: string) => void
   removeCdpRow: (idx: number) => void
   updateCdpRow: (idx: number, field: string, val: string) => void
   syncCdpRows:  () => void
@@ -69,7 +69,9 @@ export const useStore = create<Store>()(
       notification: { msg:'', show:false },
 
       setUser:       (u)    => set({ user: u }),
-      isReadOnly:    ()     => get().user?.role === 'viewer' || ['submitted','in_review','approved'].includes(get().assessment.status ?? ''),
+      isReadOnly:    ()     => get().user?.role === 'viewer'
+        || (['submitted','in_review','approved'].includes(get().assessment.status ?? '')
+            && !['admin','country_admin'].includes(get().user?.role ?? '')),
       setAssessment: (a)    => set({ assessment: a }),
       setActiveTarget:(n)   => set({ activeTarget: n }),
       setActiveTab:  (t)    => set({ activeTab: t }),
@@ -128,8 +130,8 @@ export const useStore = create<Store>()(
         set(s => ({ assessment: { ...s.assessment, cdpRows: rows } }))
       },
 
-      addCdpRow: () => set(s => ({
-        assessment: { ...s.assessment, cdpRows: [...s.assessment.cdpRows, { capacityGap:'', action:'', institution:'', timeline:'', budget:'', indicator:'', collaboration:'' }] }
+      addCdpRow: (capacityGap = '') => set(s => ({
+        assessment: { ...s.assessment, cdpRows: [...s.assessment.cdpRows, { capacityGap, action:'', institution:'', timeline:'', budget:'', indicator:'', collaboration:'' }] }
       })),
 
       removeCdpRow: (idx) => set(s => ({

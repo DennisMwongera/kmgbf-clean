@@ -205,7 +205,7 @@ export default function AdminReportsPage() {
   async function handlePDFExport() {
     if (!national) return
     setPdfExporting(true)
-    await exportNationalPDF(national, nationalRadarRef.current, multiBarRef.current)
+    await exportNationalPDF(national, nationalRadarRef.current, multiBarRef.current, allReports.length)
     setPdfExporting(false)
   }
 
