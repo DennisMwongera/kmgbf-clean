@@ -267,75 +267,75 @@ export async function loadInstitutionAssessmentDetail(
 
 // ─── Load all CDP rows across all institutions ────────────────
 export interface NationalCdpRow {
-  institution_name: string
-  institution_id:   string
-  capacity_gap:     string | null
-  action:           string | null
-  institution:      string | null
-  timeline:         string | null
-  budget_usd:       string | null
-  indicator:        string | null
-  collaboration:    string | null
+  institution_name:  string
+  institution_id:    string
+  capacity_gap:      string | null
+  action:            string | null
+  institution:       string | null
+  timeline:          string | null
+  budget_usd:        string | null
+  indicator:         string | null
+  collaboration:     string | null
   assessment_status: string | null
+  source:            'core' | 'target'
+  target_num:        number | null    // set when source = 'target'
+  target_title:      string | null    // KMGBF target title
 }
 
 export async function loadNationalCdpRows(
-  institutionIds?: string[]  // optional filter
+  institutionIds?: string[]
 ): Promise<NationalCdpRow[]> {
-  // Get all active assessments
+  // ── Get latest assessment per institution ──────────────────
   let query = supabase
     .from('assessments')
     .select('id, institution_id, status')
     .order('updated_at', { ascending: false })
-
-  if (institutionIds?.length) {
-    query = query.in('institution_id', institutionIds)
-  }
+  if (institutionIds?.length) query = query.in('institution_id', institutionIds)
 
   const { data: assessments } = await query
   if (!assessments?.length) return []
 
-  // Get latest assessment per institution
   const latestByInst = new Map<string, { id: string; status: string }>()
   assessments.forEach(a => {
-    if (!latestByInst.has(a.institution_id)) {
+    if (!latestByInst.has(a.institution_id))
       latestByInst.set(a.institution_id, { id: a.id, status: a.status })
-    }
   })
 
-  const assessIds = [...latestByInst.values()].map(a => a.id)
+  const assessIds  = [...latestByInst.values()].map(a => a.id)
+  const instIds    = [...latestByInst.keys()]
   if (!assessIds.length) return []
 
-  // Get CDP rows for those assessments
-  const { data: cdpRows } = await supabase
-    .from('cdp_rows')
-    .select('*')
-    .in('assessment_id', assessIds)
-    .not('capacity_gap', 'is', null)
-    .order('assessment_id')
-    .order('sort_order')
+  // ── Fetch CDP rows, target responses, institutions in parallel
+  const [
+    { data: cdpRows },
+    { data: targetRows },
+    { data: institutions },
+  ] = await Promise.all([
+    supabase.from('cdp_rows')
+      .select('*')
+      .in('assessment_id', assessIds)
+      .order('assessment_id').order('sort_order'),
+    supabase.from('target_responses')
+      .select('assessment_id, target_num, indicator_index, score, gap_identified, capacity_need')
+      .in('assessment_id', assessIds)
+      .not('gap_identified', 'is', null)
+      .neq('score', -1),
+    supabase.from('institutions').select('id, name').in('id', instIds),
+  ])
 
-  if (!cdpRows?.length) return []
-
-  // Get institution names
-  const instIds = [...latestByInst.keys()]
-  const { data: institutions } = await supabase
-    .from('institutions')
-    .select('id, name')
-    .in('id', instIds)
-
-  const instMap = new Map(institutions?.map(i => [i.id, i.name]) ?? [])
-
-  // Build assessment → institution map
+  const instMap      = new Map(institutions?.map(i => [i.id, i.name]) ?? [])
   const assessToInst = new Map<string, { instId: string; status: string }>()
-  latestByInst.forEach(({ id, status }, instId) => {
-    assessToInst.set(id, { instId, status })
-  })
+  latestByInst.forEach(({ id, status }, instId) => assessToInst.set(id, { instId, status }))
 
-  return cdpRows
+  // ── Build target title map ─────────────────────────────────
+  const targetTitleMap = new Map(KMGBF_TARGETS.map(t => [t.num, t.title]))
+
+  // ── CDP rows (source = core or target) ────────────────────
+  const cdpResults: NationalCdpRow[] = (cdpRows ?? [])
     .filter(r => r.capacity_gap || r.action)
     .map(r => {
       const instInfo = assessToInst.get(r.assessment_id)
+      const tNum     = r.source === 'target' ? parseInt(r.capacity_gap?.match(/^T(\d+):/)?.[1] ?? '0') || null : null
       return {
         institution_name:  instMap.get(instInfo?.instId ?? '') ?? 'Unknown',
         institution_id:    instInfo?.instId ?? '',
@@ -347,6 +347,42 @@ export async function loadNationalCdpRows(
         indicator:         r.indicator,
         collaboration:     r.collaboration,
         assessment_status: instInfo?.status ?? null,
+        source:            (r.source ?? 'core') as 'core' | 'target',
+        target_num:        tNum,
+        target_title:      tNum ? targetTitleMap.get(tNum) ?? null : null,
       }
     })
+
+  // ── Target response gaps (indicator-level gaps from target assessment)
+  // These are gaps identified in target_responses.gap_identified
+  // Group by institution + target to avoid duplicating the same gap
+  const targetGapResults: NationalCdpRow[] = []
+  const seen = new Set<string>()
+
+  ;(targetRows ?? [])
+    .filter(r => r.gap_identified?.trim() && r.score !== null && r.score !== -1)
+    .forEach(r => {
+      const instInfo = assessToInst.get(r.assessment_id)
+      const key      = `${r.assessment_id}-T${r.target_num}-${r.gap_identified}`
+      if (seen.has(key)) return
+      seen.add(key)
+      const tTitle = targetTitleMap.get(r.target_num) ?? null
+      targetGapResults.push({
+        institution_name:  instMap.get(instInfo?.instId ?? '') ?? 'Unknown',
+        institution_id:    instInfo?.instId ?? '',
+        capacity_gap:      r.gap_identified,
+        action:            null,  // no action planned yet at national level
+        institution:       null,
+        timeline:          null,
+        budget_usd:        null,
+        indicator:         r.capacity_need ?? null,
+        collaboration:     null,
+        assessment_status: instInfo?.status ?? null,
+        source:            'target',
+        target_num:        r.target_num,
+        target_title:      tTitle,
+      })
+    })
+
+  return [...cdpResults, ...targetGapResults]
 }

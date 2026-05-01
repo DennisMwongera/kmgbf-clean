@@ -88,6 +88,40 @@ export function groupedQuestions() {
   return out
 }
 
+// ─── Target gap items for CDP ─────────────────────────────────
+// Returns targets where avg score < required (5) and at least one indicator scored
+export function targetGapItems(a: Assessment): { label: string; targetNum: number; title: string }[] {
+  const items: { label: string; targetNum: number; title: string }[] = []
+  KMGBF_TARGETS.forEach(t => {
+    // Only include targets the institution has assigned (has at least one scored row)
+    const hasScored = t.indicators.some((_, i) => {
+      const s = a.targetRows[`t${t.num}_${i}`]?.score
+      return isScorable(s)
+    })
+    if (!hasScored) return
+    const avg = getTargetAvg(a, t.num, t.indicators)
+    if (avg !== null && avg < 5) {
+      items.push({
+        label:     `T${t.num}: ${t.title} — capacity gap`,
+        targetNum: t.num,
+        title:     t.title,
+      })
+    }
+    // Also include indicator-level gaps with text
+    t.indicators.forEach((_, i) => {
+      const row = a.targetRows[`t${t.num}_${i}`]
+      if (row?.gapIdentified?.trim() && isScorable(row.score)) {
+        items.push({
+          label:     row.gapIdentified.trim(),
+          targetNum: t.num,
+          title:     t.title,
+        })
+      }
+    })
+  })
+  return items
+}
+
 export function gapItems(a: Assessment) {
   const dimScores = getDimScores(a)
   const items: { label:string; dim:string }[] = []

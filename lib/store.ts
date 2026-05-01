@@ -43,7 +43,7 @@ interface Store {
   syncPriorityRows:  () => void
 
   // CDP
-  addCdpRow:    (capacityGap?: string) => void
+  addCdpRow:    (capacityGap?: string, source?: 'core' | 'target') => void
   removeCdpRow: (idx: number) => void
   updateCdpRow: (idx: number, field: string, val: string) => void
   syncCdpRows:  () => void
@@ -130,8 +130,8 @@ export const useStore = create<Store>()(
         set(s => ({ assessment: { ...s.assessment, cdpRows: rows } }))
       },
 
-      addCdpRow: (capacityGap = '') => set(s => ({
-        assessment: { ...s.assessment, cdpRows: [...s.assessment.cdpRows, { capacityGap, action:'', institution:'', timeline:'', budget:'', indicator:'', collaboration:'' }] }
+      addCdpRow: (capacityGap = '', source?: 'core' | 'target') => set(s => ({
+        assessment: { ...s.assessment, cdpRows: [...s.assessment.cdpRows, { capacityGap, action:'', institution:'', timeline:'', budget:'', indicator:'', collaboration:'', source }] }
       })),
 
       removeCdpRow: (idx) => set(s => ({

@@ -27,6 +27,7 @@ export interface PriorityRow {
 export interface CdpRow {
   capacityGap: string; action: string; institution: string
   timeline: string; budget: string; indicator: string; collaboration: string
+  source?: 'core' | 'target'  // tracks which section this row belongs to
 }
 
 export interface Assessment {
@@ -43,8 +44,9 @@ export interface Assessment {
 
 export interface UserProfile {
   id: string; full_name: string | null; email: string | null
-  role: 'admin' | 'institution_lead' | 'contributor' | 'viewer'
+  role: 'admin' | 'country_admin' | 'institution_lead' | 'contributor' | 'viewer'
   institution_id: string | null
+  country_id: string | null
 }
 
 // ─── Dimensions ───────────────────────────────────────────────────────────────

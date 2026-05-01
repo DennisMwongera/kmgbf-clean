@@ -150,6 +150,7 @@ export default function Topbar() {
             budget_usd:    r.budget        || null,
             indicator:     r.indicator     || null,
             collaboration: r.collaboration || null,
+            source:        r.source        || 'core',
           }))
         )
         if (cdpErr) throw cdpErr
