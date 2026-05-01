@@ -12,6 +12,7 @@ export default function Topbar() {
   const isReadOnly = useStore(s => s.isReadOnly())
   const [saving,         setSaving]        = useState(false)
   const [showLang,       setShowLang]       = useState(false)
+  const [conflictInfo,   setConflictInfo]   = useState<{ theirVersion: number; ourAssessment: any } | null>(null)
   const t = getT(lang ?? 'en')
 
   async function resolveConflict(choice: 'mine' | 'theirs') {
