@@ -264,3 +264,89 @@ export async function loadInstitutionAssessmentDetail(
     })),
   }
 }
+
+// ─── Load all CDP rows across all institutions ────────────────
+export interface NationalCdpRow {
+  institution_name: string
+  institution_id:   string
+  capacity_gap:     string | null
+  action:           string | null
+  institution:      string | null
+  timeline:         string | null
+  budget_usd:       string | null
+  indicator:        string | null
+  collaboration:    string | null
+  assessment_status: string | null
+}
+
+export async function loadNationalCdpRows(
+  institutionIds?: string[]  // optional filter
+): Promise<NationalCdpRow[]> {
+  // Get all active assessments
+  let query = supabase
+    .from('assessments')
+    .select('id, institution_id, status')
+    .order('updated_at', { ascending: false })
+
+  if (institutionIds?.length) {
+    query = query.in('institution_id', institutionIds)
+  }
+
+  const { data: assessments } = await query
+  if (!assessments?.length) return []
+
+  // Get latest assessment per institution
+  const latestByInst = new Map<string, { id: string; status: string }>()
+  assessments.forEach(a => {
+    if (!latestByInst.has(a.institution_id)) {
+      latestByInst.set(a.institution_id, { id: a.id, status: a.status })
+    }
+  })
+
+  const assessIds = [...latestByInst.values()].map(a => a.id)
+  if (!assessIds.length) return []
+
+  // Get CDP rows for those assessments
+  const { data: cdpRows } = await supabase
+    .from('cdp_rows')
+    .select('*')
+    .in('assessment_id', assessIds)
+    .not('capacity_gap', 'is', null)
+    .order('assessment_id')
+    .order('sort_order')
+
+  if (!cdpRows?.length) return []
+
+  // Get institution names
+  const instIds = [...latestByInst.keys()]
+  const { data: institutions } = await supabase
+    .from('institutions')
+    .select('id, name')
+    .in('id', instIds)
+
+  const instMap = new Map(institutions?.map(i => [i.id, i.name]) ?? [])
+
+  // Build assessment → institution map
+  const assessToInst = new Map<string, { instId: string; status: string }>()
+  latestByInst.forEach(({ id, status }, instId) => {
+    assessToInst.set(id, { instId, status })
+  })
+
+  return cdpRows
+    .filter(r => r.capacity_gap || r.action)
+    .map(r => {
+      const instInfo = assessToInst.get(r.assessment_id)
+      return {
+        institution_name:  instMap.get(instInfo?.instId ?? '') ?? 'Unknown',
+        institution_id:    instInfo?.instId ?? '',
+        capacity_gap:      r.capacity_gap,
+        action:            r.action,
+        institution:       r.institution,
+        timeline:          r.timeline,
+        budget_usd:        r.budget_usd,
+        indicator:         r.indicator,
+        collaboration:     r.collaboration,
+        assessment_status: instInfo?.status ?? null,
+      }
+    })
+}

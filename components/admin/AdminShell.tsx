@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
-import { LayoutDashboard, Building2, Users, BarChart2, ArrowLeft, LogOut } from 'lucide-react'
+import { LayoutDashboard, Building2, Users, BarChart2, ArrowLeft, LogOut, Globe } from 'lucide-react'
 
 const NAV = [
   { href:'/admin',              Icon: LayoutDashboard, label:'Overview'          },
@@ -15,6 +15,22 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const pathname = usePathname()
 
   async function signOut() {
+    // Admins rarely have unsaved assessment data but back up just in case
+    try {
+      const stored = localStorage.getItem('kmgbf-v2')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        const hasData = parsed?.state?.assessment?.id ||
+          parsed?.state?.assessment?.coreRows?.some((r: any) => r.score !== null)
+        if (hasData) {
+          localStorage.setItem('kmgbf-conflict-backup', JSON.stringify({
+            savedAt:    new Date().toISOString(),
+            assessment: parsed?.state?.assessment,
+            source:     'sign-out',
+          }))
+        }
+      }
+    } catch {}
     await supabase.auth.signOut()
     localStorage.removeItem('kmgbf-v2')
     window.location.href = '/auth'

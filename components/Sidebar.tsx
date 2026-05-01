@@ -1,86 +1,69 @@
 'use client'
+import {
+  LayoutDashboard, Building2, ClipboardList, Target, BarChart2,
+  GitCompareArrows, Zap, BookOpen, FileText, Download, LogOut,
+  Users, Crosshair, ShieldCheck, Settings
+} from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { type Page } from '@/lib/constants'
 import { supabase } from '@/lib/supabase/client'
 import { getT } from '@/lib/i18n'
-import {
-  LayoutDashboard,
-  Building2,
-  Users,
-  Target,
-  Search,
-  BarChart3,
-  Zap,
-  ClipboardList,
-  FileText,
-  LogOut
-} from 'lucide-react'
+
+const SZ = 15
+
+const NAV_CONFIG = (t: ReturnType<typeof getT>, isLead: boolean) => [
+  { section: t.nav.assessment, items: [
+    { page: 'dashboard' as Page, Icon: LayoutDashboard, label: t.nav.dashboard },
+    { page: 'profile'   as Page, Icon: Building2,       label: t.nav.profile   },
+    { page: 'team'      as Page, Icon: Users,            label: t.nav.team ?? 'Team' },
+    ...(isLead ? [{ page: 'myTargets' as Page, Icon: Crosshair, label: t.nav.myTargets ?? 'Our Targets' }] : []),
+    { page: 'core'      as Page, Icon: ClipboardList,   label: t.nav.core      },
+    { page: 'targets'   as Page, Icon: Target,           label: t.nav.targets   },
+  ]},
+  { section: t.nav.analysis, items: [
+    { page: 'gaps'     as Page, Icon: GitCompareArrows, label: t.nav.gaps     },
+    { page: 'priority' as Page, Icon: Zap,              label: t.nav.priority },
+  ]},
+  { section: t.nav.outputs, items: [
+    { page: 'cdp'    as Page, Icon: BookOpen,  label: t.nav.cdp    },
+    { page: 'report' as Page, Icon: BarChart2, label: t.nav.report },
+  ]},
+]
 
 const ROLE_STYLE: Record<string, { bg: string; color: string }> = {
-  admin: { bg: 'rgba(220,38,38,.2)', color: '#fca5a5' },
-  institution_lead: { bg: 'rgba(251,191,36,.2)', color: '#fcd34d' },
-  contributor: { bg: 'rgba(82,183,136,.2)', color: '#6ee7b7' },
-  viewer: { bg: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.5)' },
+  admin:            { bg: 'rgba(220,38,38,.2)',   color: '#fca5a5' },
+  institution_lead: { bg: 'rgba(251,191,36,.2)',  color: '#fcd34d' },
+  contributor:      { bg: 'rgba(82,183,136,.2)',  color: '#6ee7b7' },
+  viewer:           { bg: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.5)' },
 }
 
 interface Props { onExport: () => void }
 
 export default function Sidebar({ onExport }: Props) {
   const { activePage, user, setUser, navigate, assessment, lang } = useStore()
-  const t = getT(lang ?? 'en')
-
-  // const NAV = [
-  //   { section: t.nav.assessment, items: [
-  //     { page: 'dashboard' as Page, icon: '📊', label: t.nav.dashboard },
-  //     { page: 'profile'   as Page, icon: '🏛️', label: t.nav.profile   },
-  //     { page: 'team'      as Page, icon: '👥', label: t.nav.team ?? 'Team'     },
-  //     ...(user?.role === 'institution_lead' || user?.role === 'admin' ? [{ page: 'myTargets' as Page, icon: '🎯', label: 'Our Targets' }] : []),
-  //     { page: 'core'      as Page, icon: '🔍', label: t.nav.core      },
-  //     { page: 'targets'   as Page, icon: '🎯', label: t.nav.targets   },
-  //   ]},
-  //   { section: t.nav.analysis, items: [
-  //     { page: 'gaps'     as Page, icon: '📉', label: t.nav.gaps     },
-  //     { page: 'priority' as Page, icon: '⚡', label: t.nav.priority },
-  //   ]},
-  //   { section: t.nav.outputs, items: [
-  //     { page: 'cdp'    as Page, icon: '📋', label: t.nav.cdp    },
-  //     { page: 'report' as Page, icon: '📄', label: t.nav.report },
-  //   ]},
-  // ]
-
-  const NAV = [
-    {
-      section: t.nav.assessment,
-      items: [
-        { page: 'dashboard' as Page, icon: LayoutDashboard, label: t.nav.dashboard },
-        { page: 'profile' as Page, icon: Building2, label: t.nav.profile },
-        { page: 'team' as Page, icon: Users, label: t.nav.team ?? 'Team' },
-        ...(user?.role === 'institution_lead' || user?.role === 'admin'
-          ? [{ page: 'myTargets' as Page, icon: Target, label: 'Our Targets' }]
-          : []),
-        { page: 'core' as Page, icon: Search, label: t.nav.core },
-        { page: 'targets' as Page, icon: Target, label: t.nav.targets },
-      ]
-    },
-    {
-      section: t.nav.analysis,
-      items: [
-        { page: 'gaps' as Page, icon: BarChart3, label: t.nav.gaps },
-        { page: 'priority' as Page, icon: Zap, label: t.nav.priority },
-      ]
-    },
-    {
-      section: t.nav.outputs,
-      items: [
-        { page: 'cdp' as Page, icon: ClipboardList, label: t.nav.cdp },
-        { page: 'report' as Page, icon: FileText, label: t.nav.report },
-      ]
-    },
-  ]
+  const t      = getT(lang ?? 'en')
+  const isLead = user?.role === 'institution_lead' || user?.role === 'admin'
+  const NAV    = NAV_CONFIG(t, isLead)
 
   async function signOut() {
+    // Back up any unsaved work before signing out
+    // so it can be restored on next sign-in
+    try {
+      const stored = localStorage.getItem('kmgbf-v2')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        const hasData = parsed?.state?.assessment?.id ||
+          parsed?.state?.assessment?.coreRows?.some((r: any) => r.score !== null)
+        if (hasData) {
+          localStorage.setItem('kmgbf-conflict-backup', JSON.stringify({
+            savedAt:    new Date().toISOString(),
+            assessment: parsed?.state?.assessment,
+            source:     'sign-out',
+          }))
+        }
+      }
+    } catch {}
     await supabase.auth.signOut()
-    // Clear locally cached assessment data so it doesn't leak to the next user
     localStorage.removeItem('kmgbf-v2')
     setUser(null)
     window.location.href = '/auth'
@@ -124,16 +107,10 @@ export default function Sidebar({ onExport }: Props) {
                 {user.role.replace('_', ' ')}
               </span>
             </div>
-            <button
-              onClick={signOut}
-              title={t.nav.signOut}
-              className="shrink-0 w-7 h-7 rounded flex items-center justify-center transition-all hover:bg-white/10"
-              style={{
-                background: 'rgba(255,255,255,.08)',
-                color: 'rgba(255,255,255,.6)'
-              }}
-            >
-              <LogOut className="w-4 h-4" />
+            <button onClick={signOut} title={t.nav.signOut}
+              className="shrink-0 w-7 h-7 rounded flex items-center justify-center transition-colors hover:bg-white/10"
+              style={{ color: 'rgba(255,255,255,.45)' }}>
+              <LogOut size={13}/>
             </button>
           </div>
         ) : (
@@ -163,7 +140,7 @@ export default function Sidebar({ onExport }: Props) {
               style={{ color: 'rgba(149,213,178,.4)' }}>
               {section}
             </div>
-            {/* {items.map(({ page, icon, label }) => (
+            {items.map(({ page, Icon, label }) => (
               <button key={page} onClick={() => navigate(page)}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium border-l-2 transition-all text-left"
                 style={{
@@ -171,24 +148,7 @@ export default function Sidebar({ onExport }: Props) {
                   background:      activePage === page ? 'rgba(82,183,136,.12)' : 'transparent',
                   borderLeftColor: activePage === page ? '#52b788' : 'transparent',
                 }}>
-                <span className="text-sm w-4 text-center shrink-0">{icon}</span>
-                {label}
-              </button>
-            ))} */}
-            {items.map(({ page, icon: Icon, label }) => (
-              <button
-                key={page}
-                onClick={() => navigate(page)}
-                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium border-l-2 transition-all text-left"
-                style={{
-                  color: activePage === page ? 'white' : 'rgba(255,255,255,.5)',
-                  background: activePage === page ? 'rgba(82,183,136,.12)' : 'transparent',
-                  borderLeftColor: activePage === page ? '#52b788' : 'transparent',
-                }}
-              >
-                <span className="w-4 flex justify-center shrink-0">
-                  {Icon && <Icon className="w-4 h-4" />}
-                </span>
+                <Icon size={SZ} className="shrink-0" style={{ opacity: activePage === page ? 1 : 0.6 }}/>
                 {label}
               </button>
             ))}
@@ -196,13 +156,13 @@ export default function Sidebar({ onExport }: Props) {
         ))}
       </nav>
 
-      {/* Admin link — only visible to admins */}
+      {/* Admin panel link */}
       {user?.role === 'admin' && (
         <div className="relative px-4 pb-1 border-t border-white/[0.06] pt-2">
           <a href="/admin"
-            className="flex items-center gap-2.5 px-2 py-2 rounded-xl text-[12px] font-semibold transition-colors"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12px] font-semibold transition-colors"
             style={{ background: 'rgba(220,38,38,.12)', color: '#fca5a5', border: '1px solid rgba(220,38,38,.2)' }}>
-            <span>⚙️</span> Admin Panel
+            <ShieldCheck size={14}/> Admin Panel
           </a>
         </div>
       )}
@@ -210,9 +170,9 @@ export default function Sidebar({ onExport }: Props) {
       {/* Export + Footer */}
       <div className="relative px-4 py-3 border-t border-white/[0.06] space-y-2">
         <button onClick={onExport}
-          className="w-full py-2 rounded-lg text-[12px] font-semibold transition-colors"
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-[12px] font-semibold transition-colors"
           style={{ background: 'rgba(82,183,136,.12)', color: '#52b788', border: '1px solid rgba(82,183,136,.25)' }}>
-          ⬇ {t.nav.exportData}
+          <Download size={13}/> {t.nav.exportData}
         </button>
         <div className="text-[9.5px] text-center" style={{ color: 'rgba(255,255,255,.2)' }}>
           {t.nav.copyright}

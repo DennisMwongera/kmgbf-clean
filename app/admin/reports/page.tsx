@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { loadAllInstitutionReports, buildNationalReport, type InstitutionReport, type NationalReport } from '@/lib/supabase/adminApi'
+import { loadAllInstitutionReports, buildNationalReport, loadNationalCdpRows, type InstitutionReport, type NationalReport, type NationalCdpRow } from '@/lib/supabase/adminApi'
 import { DIMENSIONS, KMGBF_TARGETS } from '@/lib/constants'
 import { Chart, RadarController, RadialLinearScale, PointElement, LineElement, Filler,
          BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js'
@@ -10,7 +10,7 @@ import { exportNationalPDF } from '@/lib/pdfExport'
 import ExportMenu from '@/components/ExportMenu'
 import {
   Globe, Radar, BarChart2, Target, Download, Loader2,
-  Building2, ClipboardList, TrendingUp, ArrowRight, ChevronRight, ChevronDown, FileDown
+  Building2, ClipboardList, TrendingUp, ArrowRight, ChevronRight, ChevronDown, Table2, FileDown
 } from 'lucide-react'
 
 Chart.register(RadarController, RadialLinearScale, PointElement, LineElement, Filler,
@@ -134,10 +134,11 @@ async function exportNationalXLSX(national: NationalReport) {
 
 // ─── Tab config ─────────────────────────────────────────────────
 const TABS = [
-  { id: 'overview'   as const, label: 'Overview',             Icon: Globe      },
-  { id: 'radar'      as const, label: 'National Radar',       Icon: Radar      },
-  { id: 'comparison' as const, label: 'Institution Comparison',Icon: BarChart2  },
-  { id: 'targets'    as const, label: 'Target Readiness',     Icon: Target     },
+  { id: 'overview'    as const, label: 'Overview',              Icon: Globe      },
+  { id: 'radar'       as const, label: 'National Radar',        Icon: Radar      },
+  { id: 'comparison'  as const, label: 'Institution Comparison', Icon: BarChart2  },
+  { id: 'targets'     as const, label: 'Target Readiness',      Icon: Target     },
+  { id: 'cdp'         as const, label: 'Development Plans',     Icon: Table2     },
 ]
 
 // ─── Section header ─────────────────────────────────────────────
@@ -164,6 +165,10 @@ export default function AdminReportsPage() {
   const [pdfExporting, setPdfExporting] = useState(false)
   const [selectedIds,  setSelectedIds]  = useState<Set<string>>(new Set())
   const [filterOpen,   setFilterOpen]   = useState(false)
+  const [cdpRows,      setCdpRows]      = useState<NationalCdpRow[]>([])
+  const [cdpLoading,   setCdpLoading]   = useState(false)
+  const [cdpLoaded,    setCdpLoaded]    = useState(false)
+
   const nationalRadarRef = useRef<HTMLCanvasElement>(null)
   const multiBarRef      = useRef<HTMLCanvasElement>(null)
   const date             = new Date().toISOString().slice(0,10)
@@ -180,7 +185,7 @@ export default function AdminReportsPage() {
   function toggleInstitution(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev)
-      if (next.has(id)) { if (next.size > 1) next.delete(id) } // keep at least one
+      if (next.has(id)) { if (next.size > 1) next.delete(id) }
       else next.add(id)
       return next
     })
@@ -190,6 +195,18 @@ export default function AdminReportsPage() {
     const filtered = allReports.filter(r => selectedIds.has(r.institution.id))
     setNational(buildNationalReport(filtered))
     setFilterOpen(false)
+    if (activeTab === 'cdp') {
+      setCdpLoaded(false)
+      loadCdp([...selectedIds])
+    }
+  }
+
+  async function loadCdp(instIds?: string[]) {
+    setCdpLoading(true)
+    const rows = await loadNationalCdpRows(instIds?.length ? instIds : undefined)
+    setCdpRows(rows)
+    setCdpLoading(false)
+    setCdpLoaded(true)
   }
 
   function selectAll() { setSelectedIds(new Set(allReports.map(r => r.institution.id))) }
@@ -207,6 +224,13 @@ export default function AdminReportsPage() {
     setPdfExporting(true)
     await exportNationalPDF(national, nationalRadarRef.current, multiBarRef.current, allReports.length)
     setPdfExporting(false)
+  }
+
+  function handleTabClick(id: typeof TABS[number]['id']) {
+    setActiveTab(id)
+    if (id === 'cdp' && !cdpLoaded) {
+      loadCdp([...selectedIds])
+    }
   }
 
   if (loading) return (
@@ -237,14 +261,10 @@ export default function AdminReportsPage() {
         </div>
         <div className="flex gap-2 flex-wrap shrink-0">
           <button className="btn btn-secondary flex items-center gap-2" onClick={handleExport} disabled={exporting}>
-            {exporting
-              ? <><Loader2 size={13} className="animate-spin"/> Exporting…</>
-              : <><Download size={13}/> Export XLSX</>}
+            {exporting ? <><Loader2 size={13} className="animate-spin"/> Exporting…</> : <><Download size={13}/> Export XLSX</>}
           </button>
           <button className="btn btn-primary flex items-center gap-2" onClick={handlePDFExport} disabled={pdfExporting}>
-            {pdfExporting
-              ? <><Loader2 size={13} className="animate-spin"/> Generating…</>
-              : <><FileDown size={13}/> Download PDF</>}
+            {pdfExporting ? <><Loader2 size={13} className="animate-spin"/> Generating…</> : <><FileDown size={13}/> Download PDF</>}
           </button>
         </div>
       </div>
@@ -255,7 +275,7 @@ export default function AdminReportsPage() {
           { label:'Institutions',     value: national.institutions.length,                                                                                          accent:'#52b788', Icon: Building2    },
           { label:'With Assessments', value: withData.length,                                                                                                       accent:'#5b8dee', Icon: ClipboardList },
           { label:'National Score',   value: national.nationalOverall?.toFixed(2) ?? '—',                                                                           accent:'#c8860a', Icon: TrendingUp    },
-          { label:'Avg Indicators',   value: withData.length ? Math.round(withData.reduce((s,r)=>s+r.answeredCount,0)/withData.length)+'/50' : '—', accent:'#e07a5f', Icon: Target       },
+          { label:'Avg Indicators',   value: withData.length ? Math.round(withData.reduce((s,r)=>s+r.answeredCount,0)/withData.length)+'/50' : '—',                accent:'#e07a5f', Icon: Target       },
         ].map(({ label, value, accent, Icon }) => (
           <div key={label} className="bg-white rounded-xl px-5 py-4 border border-sand-300/60"
             style={{ borderTop:`3px solid ${accent}`, boxShadow:'0 2px 12px rgba(15,45,28,.08)' }}>
@@ -270,14 +290,9 @@ export default function AdminReportsPage() {
       {/* Institution filter */}
       <div className="mb-4">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setFilterOpen(v => !v)}
+          <button onClick={() => setFilterOpen(v => !v)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl border text-[12.5px] font-medium transition-all"
-            style={{
-              background: filterOpen ? '#1b4332' : 'white',
-              color:       filterOpen ? 'white' : '#374151',
-              borderColor: filterOpen ? '#1b4332' : '#e5e7eb',
-            }}>
+            style={{ background: filterOpen ? '#1b4332' : 'white', color: filterOpen ? 'white' : '#374151', borderColor: filterOpen ? '#1b4332' : '#e5e7eb' }}>
             <Building2 size={13}/>
             Filter Institutions
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
@@ -294,7 +309,7 @@ export default function AdminReportsPage() {
         </div>
 
         {filterOpen && (
-          <div className="mt-2 p-4 bg-white rounded-2xl border border-sand-300 shadow-lg"
+          <div className="mt-2 p-4 bg-white rounded-2xl border border-sand-300"
             style={{ boxShadow:'0 8px 24px rgba(0,0,0,.1)' }}>
             <div className="flex items-center justify-between mb-3">
               <p className="text-[12.5px] text-forest-500">Select which institutions to include in the national report:</p>
@@ -307,14 +322,9 @@ export default function AdminReportsPage() {
               {allReports.map(r => (
                 <label key={r.institution.id}
                   className="flex items-center gap-2.5 px-3 py-2 rounded-xl border cursor-pointer transition-all"
-                  style={{
-                    borderColor: selectedIds.has(r.institution.id) ? '#2d6a4f' : '#e8e3da',
-                    background:  selectedIds.has(r.institution.id) ? '#f0faf4' : 'white',
-                  }}>
-                  <input type="checkbox"
-                    checked={selectedIds.has(r.institution.id)}
-                    onChange={() => toggleInstitution(r.institution.id)}
-                    style={{ accentColor:'#2d6a4f' }}/>
+                  style={{ borderColor: selectedIds.has(r.institution.id) ? '#2d6a4f' : '#e8e3da', background: selectedIds.has(r.institution.id) ? '#f0faf4' : 'white' }}>
+                  <input type="checkbox" checked={selectedIds.has(r.institution.id)}
+                    onChange={() => toggleInstitution(r.institution.id)} style={{ accentColor:'#2d6a4f' }}/>
                   <div className="flex-1 min-w-0">
                     <div className="text-[12px] font-semibold text-forest-700 truncate">{r.institution.name}</div>
                     <div className="text-[10px] text-forest-400">
@@ -337,14 +347,13 @@ export default function AdminReportsPage() {
         )}
       </div>
 
-      {/* Tabs with Lucide icons */}
+      {/* Tabs */}
       <div className="flex gap-1 mb-5 bg-sand-100 p-1 rounded-xl w-fit flex-wrap">
         {TABS.map(({ id, label, Icon }) => (
-          <button key={id} onClick={() => setActiveTab(id)}
+          <button key={id} onClick={() => handleTabClick(id)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12.5px] font-medium transition-all"
             style={{ background: activeTab===id ? 'white' : 'transparent', color: activeTab===id ? '#1b4332' : '#6b7280', boxShadow: activeTab===id ? '0 1px 4px rgba(0,0,0,.08)' : 'none' }}>
-            <Icon size={13}/>
-            {label}
+            <Icon size={13}/> {label}
           </button>
         ))}
       </div>
@@ -377,8 +386,7 @@ export default function AdminReportsPage() {
           <div className="card">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 card-title mb-0">
-                <Building2 size={16} style={{ color:'#40916c' }}/>
-                Institutions ({national.institutions.length})
+                <Building2 size={16} style={{ color:'#40916c' }}/> Institutions ({national.institutions.length})
               </div>
               <div className="flex items-center gap-3">
                 <ExportMenu mini options={[
@@ -414,7 +422,8 @@ export default function AdminReportsPage() {
                       </td>
                       <td>
                         {r.assessment
-                          ? <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background:r.assessment.status==='submitted'?'#dbeafe':r.assessment.status==='in_progress'?'#fef3c7':'#f3f4f6', color:r.assessment.status==='submitted'?'#1d4ed8':r.assessment.status==='in_progress'?'#d97706':'#6b7280' }}>
+                          ? <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold"
+                              style={{ background:r.assessment.status==='submitted'?'#dbeafe':r.assessment.status==='in_progress'?'#fef3c7':'#f3f4f6', color:r.assessment.status==='submitted'?'#1d4ed8':r.assessment.status==='in_progress'?'#d97706':'#6b7280' }}>
                               {r.assessment.status?.replace('_',' ')}
                             </span>
                           : <span className="text-[10px] text-forest-300">No data</span>}
@@ -431,14 +440,12 @@ export default function AdminReportsPage() {
             </div>
           </div>
 
-          {/* Institution drill-down */}
           {selected && (
             <div className="card border-2 border-forest-200">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <div className="flex items-center gap-2 card-title mb-0.5">
-                    <ClipboardList size={15} style={{ color:'#40916c' }}/>
-                    {selected.institution.name}
+                    <ClipboardList size={15} style={{ color:'#40916c' }}/> {selected.institution.name}
                   </div>
                   <div className="text-[11.5px] text-forest-400">
                     {selected.institution.type} · {selected.institution.level} ·{' '}
@@ -499,9 +506,7 @@ export default function AdminReportsPage() {
                 { label:'CSV data',  icon:'📋', action:()=> downloadCSV([['Dimension','National Avg'],...DIMENSIONS.map(d=>[d, national!.nationalDimScores[d]?.toFixed(2)??''])], `National_Radar_${date}`) },
               ]}/>
             </SectionHeader>
-            <p className="text-[12.5px] text-forest-400 mb-3">
-              Includes {withData.length} institutions with assessment data.
-            </p>
+            <p className="text-[12.5px] text-forest-400 mb-3">Includes {withData.length} institutions with assessment data.</p>
             <div className="max-w-lg mx-auto">
               <NationalRadar scores={national.nationalDimScores} canvasRef={nationalRadarRef}/>
             </div>
@@ -522,7 +527,7 @@ export default function AdminReportsPage() {
         </div>
       )}
 
-      {/* ── Institution Comparison Bar ── */}
+      {/* ── Institution Comparison ── */}
       {activeTab === 'comparison' && (
         <div className="card">
           <SectionHeader icon={BarChart2} title="Dimension Scores — All Institutions">
@@ -571,6 +576,117 @@ export default function AdminReportsPage() {
           </div>
         </div>
       )}
+
+      {/* ── Development Plans ── */}
+      {activeTab === 'cdp' && (
+        <div>
+          <SectionHeader icon={Table2} title="National Capacity Development Plans">
+            <ExportMenu mini options={[
+              { label:'CSV',  icon:'📋', action:() => downloadCSV([
+                  ['Institution','Capacity Gap','Action','Responsible','Timeline','Budget (USD)','Indicator','Collaboration','Status'],
+                  ...cdpRows.map(r=>[r.institution_name,r.capacity_gap??'',r.action??'',r.institution??'',r.timeline??'',r.budget_usd??'',r.indicator??'',r.collaboration??'',r.assessment_status??''])
+                ], `National_CDP_${date}`) },
+              { label:'XLSX', icon:'📊', action:() => downloadXLSX([{ name:'National_CDP', rows:[
+                  ['Institution','Capacity Gap','Action','Responsible','Timeline','Budget (USD)','Indicator','Collaboration','Status'],
+                  ...cdpRows.map(r=>[r.institution_name,r.capacity_gap??'',r.action??'',r.institution??'',r.timeline??'',r.budget_usd??'',r.indicator??'',r.collaboration??'',r.assessment_status??''])
+                ]}], `National_CDP_${date}`) },
+            ]}/>
+          </SectionHeader>
+
+          {cdpLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={24} className="animate-spin" style={{ color:'#40916c' }}/>
+            </div>
+          ) : !cdpLoaded ? (
+            <div className="card text-center py-12">
+              <div className="text-2xl mb-2">📋</div>
+              <div className="text-[13px] text-forest-400 mb-3">Click to load development plans from all institutions.</div>
+              <button className="btn btn-primary" onClick={() => loadCdp([...selectedIds])}>
+                Load Development Plans
+              </button>
+            </div>
+          ) : cdpRows.length === 0 ? (
+            <div className="card text-center py-12 text-forest-400">
+              No development plan actions found across selected institutions.
+            </div>
+          ) : (
+            <>
+              {/* Summary cards */}
+              <div className="grid grid-cols-4 gap-3 mb-5">
+                {[
+                  { label:'Total Actions', value: cdpRows.length,                                                 color:'#2d6a4f' },
+                  { label:'Institutions',  value: new Set(cdpRows.map(r=>r.institution_id)).size,                 color:'#1d4ed8' },
+                  { label:'Unique Gaps',   value: new Set(cdpRows.map(r=>r.capacity_gap).filter(Boolean)).size,   color:'#d97706' },
+                  { label:'With Budget',   value: cdpRows.filter(r=>r.budget_usd).length,                         color:'#047857' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="card py-3 px-4" style={{ borderTop:`3px solid ${color}` }}>
+                    <div className="text-[10px] font-bold tracking-[1.5px] uppercase text-forest-400 mb-1">{label}</div>
+                    <div className="text-[26px] font-light" style={{ fontFamily:'var(--font-mono)', color }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Timeline breakdown */}
+              <div className="card mb-5">
+                <div className="text-[11px] font-bold uppercase tracking-wide text-forest-400 mb-3">Actions by Timeline</div>
+                <div className="flex flex-wrap gap-2">
+                  {['0–6 months','6–12 months','1–2 years','2–5 years','Long-term'].map(tl => {
+                    const count = cdpRows.filter(r => r.timeline === tl).length
+                    if (!count) return null
+                    return (
+                      <div key={tl} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-sand-300">
+                        <span className="text-[12px] font-semibold text-forest-700">{tl}</span>
+                        <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background:'#d8f3dc', color:'#1b4332' }}>{count}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Full table */}
+              <div style={{ overflowX:'auto' }}>
+                <table className="rt w-full" style={{ minWidth:900 }}>
+                  <thead>
+                    <tr>
+                      <th>Institution</th><th>Capacity Gap</th><th>Action</th>
+                      <th>Responsible</th><th>Timeline</th><th>Budget</th>
+                      <th>Indicator</th><th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cdpRows.map((r, i) => (
+                      <tr key={i}>
+                        <td><span className="text-[12px] font-semibold text-forest-700">{r.institution_name}</span></td>
+                        <td className="text-[11.5px]">{r.capacity_gap||'—'}</td>
+                        <td className="text-[11.5px]">{r.action||'—'}</td>
+                        <td className="text-[11px] text-forest-400">{r.institution||'—'}</td>
+                        <td>
+                          {r.timeline
+                            ? <span className="chip text-[10px]" style={{ background:'#d8f3dc', color:'#1b4332', whiteSpace:'nowrap' }}>{r.timeline}</span>
+                            : <span className="text-forest-300">—</span>}
+                        </td>
+                        <td className="text-[11.5px] font-mono">{r.budget_usd||'—'}</td>
+                        <td className="text-[11px] text-forest-400">{r.indicator||'—'}</td>
+                        <td>
+                          {r.assessment_status && (
+                            <span className="chip text-[10px]" style={{
+                              background: r.assessment_status==='approved'?'#d8f3dc':r.assessment_status==='submitted'?'#dbeafe':'#fef3c7',
+                              color:      r.assessment_status==='approved'?'#1b4332':r.assessment_status==='submitted'?'#1d4ed8':'#d97706',
+                            }}>
+                              {r.assessment_status.replace('_',' ')}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
     </div>
   )
 }
