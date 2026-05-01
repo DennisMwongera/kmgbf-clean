@@ -14,34 +14,51 @@ export default function Topbar() {
   const [showLang,       setShowLang]       = useState(false)
   const t = getT(lang ?? 'en')
 
+  async function resolveConflict(choice: 'mine' | 'theirs') {
+    if (!conflictInfo || !user?.institution_id) return
+    if (choice === 'theirs') {
+      // Load teammate's version — user's work is backed up in localStorage
+      const refreshed = await loadInstitutionAssessment(user.institution_id)
+      if (refreshed) setAssessment(refreshed)
+    } else {
+      // Force-save user's version — update our local version to match DB first
+      // so the next save doesn't conflict again
+      const { data: current } = await supabase
+        .from('assessments').select('version').eq('id', conflictInfo.ourAssessment.id).single()
+      if (current) {
+        setAssessment({ ...conflictInfo.ourAssessment, version: current.version })
+        // Trigger save after state update
+        setTimeout(() => save(), 100)
+      }
+    }
+    setConflictInfo(null)
+  }
+
   async function save() {
     if (!user) { notify(t.topbar.notSignedIn); return }
     if (!user.institution_id) { notify(t.topbar.noInstitution); return }
     setSaving(true)
     try {
       // ── 1. Optimistic lock check ──────────────────────────
-      if (assessment.id && assessment.version !== null) {
+      // Only fires when a DIFFERENT user has saved since we last loaded
+      // (same user saving = version stays same = no conflict)
+      if (assessment.id && typeof assessment.version === 'number') {
         const { data: current } = await supabase
           .from('assessments')
           .select('version')
           .eq('id', assessment.id)
           .single()
-        if (current && current.version !== assessment.version) {
-          const reload = confirm(
-            'A teammate saved this assessment while you were editing.\n\n' +
-            'Click OK to load their latest version.\n' +
-            'Your changes will be backed up — a "Restore my changes" button will appear.\n\n' +
-            'Click Cancel to force-save your version over theirs.'
-          )
-          if (reload) {
-            // Back up current unsaved work before overwriting
-            const backup = {
-              savedAt:  new Date().toISOString(),
+
+        if (current && typeof current.version === 'number') {
+          const diff = current.version - assessment.version
+          // diff > 0 means a different user saved since we loaded
+          if (diff > 0) {
+            localStorage.setItem('kmgbf-conflict-backup', JSON.stringify({
+              savedAt:    new Date().toISOString(),
               assessment: assessment,
-            }
-            localStorage.setItem('kmgbf-conflict-backup', JSON.stringify(backup))
-            const refreshed = await loadInstitutionAssessment(user.institution_id)
-            if (refreshed) setAssessment(refreshed)
+              source:     'conflict',
+            }))
+            setConflictInfo({ theirVersion: current.version, ourAssessment: assessment })
             setSaving(false)
             return
           }
@@ -203,6 +220,32 @@ export default function Topbar() {
       className="sticky top-0 z-30 h-[58px] flex items-center justify-between px-8 border-b border-sand-300"
       style={{ background: 'rgba(246,243,238,.95)', backdropFilter: 'blur(10px)' }}
     >
+      {/* Conflict banner — non-blocking, no data loss */}
+      {conflictInfo && (
+        <div style={{
+          position:'fixed', top:58, left:0, right:0, zIndex:9998,
+          background:'#1e3a5f', borderBottom:'2px solid #3b82f6',
+          padding:'10px 24px', display:'flex', alignItems:'center', gap:12,
+          fontSize:13, color:'white',
+        }}>
+          <span>👥</span>
+          <span style={{ flex:1 }}>
+            A teammate saved while you were editing. Your changes are backed up.
+            Which version do you want to keep?
+          </span>
+          <button onClick={() => resolveConflict('mine')}
+            style={{ padding:'6px 14px', borderRadius:8, border:'none', cursor:'pointer',
+              background:'#2d6a4f', color:'white', fontWeight:700, fontSize:12, whiteSpace:'nowrap' }}>
+            Keep mine → Save now
+          </button>
+          <button onClick={() => resolveConflict('theirs')}
+            style={{ padding:'6px 14px', borderRadius:8, border:'1px solid rgba(255,255,255,.3)',
+              cursor:'pointer', background:'transparent', color:'white', fontSize:12, whiteSpace:'nowrap' }}>
+            Load theirs
+          </button>
+        </div>
+      )}
+
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-[13px]">
         <span className="text-forest-400">KMGBF CNA</span>
