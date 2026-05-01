@@ -26,6 +26,7 @@ export async function exportNationalPDF(
   national: NationalReport,
   radarCanvas: HTMLCanvasElement | null,
   barCanvas:   HTMLCanvasElement | null,
+  totalInstitutions?: number,  // total before any filter was applied
 ) {
   const { jsPDF } = await import('jspdf')
 
@@ -128,7 +129,10 @@ export async function exportNationalPDF(
   y += 42
   const meta = [
     ['Report generated',   date],
-    ['Institutions assessed', `${withData.length} of ${national.institutions.length}`],
+    ['Institutions assessed', totalInstitutions && totalInstitutions > national.institutions.length
+      ? `${withData.length} of ${national.institutions.length} (filtered from ${totalInstitutions})`
+      : `${withData.length} of ${national.institutions.length}`
+    ],
     ['Targets covered',    '23 KMGBF 2030 Targets'],
     ['Dimensions assessed','8 Capacity Dimensions'],
   ]
@@ -139,6 +143,24 @@ export async function exportNationalPDF(
     doc.text(val, ML+55, y+4)
     y += 7
   })
+
+  // Filter notice — shown only when report is a subset
+  if (totalInstitutions && totalInstitutions > national.institutions.length) {
+    checkY(20)
+    doc.setFillColor(254,243,199)  // amber-100
+    doc.roundedRect(ML, y, CW, 14, 2, 2, 'F')
+    doc.setDrawColor(252,211,77)   // amber-300
+    doc.setLineWidth(0.5)
+    doc.roundedRect(ML, y, CW, 14, 2, 2, 'S')
+    doc.setFontSize(8.5).setTextColor(146,64,14).setFont('helvetica','bold')
+    doc.text('⚠  FILTERED REPORT', ML+4, y+5.5)
+    doc.setFont('helvetica','normal')
+    doc.text(
+      `This report covers ${national.institutions.length} of ${totalInstitutions} institutions. It does not represent the full national picture.`,
+      ML+4, y+10.5
+    )
+    y += 18
+  }
 
   // Footer on cover
   y = H - 15
