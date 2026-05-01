@@ -3,15 +3,15 @@ import { useStore } from '@/lib/store'
 import { PAGE_TITLES, CORE_QUESTIONS } from '@/lib/constants'
 import { supabase } from '@/lib/supabase/client'
 import { loadInstitutionAssessment } from '@/lib/supabase/api'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { LANGUAGES, getT, type LangCode } from '@/lib/i18n'
 import { Save, Loader2, Globe, ChevronDown, Check } from 'lucide-react'
 
 export default function Topbar() {
   const { activePage, assessment, setAssessment, user, notify, lang, setLang } = useStore()
   const isReadOnly = useStore(s => s.isReadOnly())
-  const [saving,   setSaving]  = useState(false)
-  const [showLang, setShowLang] = useState(false)
+  const [saving,         setSaving]        = useState(false)
+  const [showLang,       setShowLang]       = useState(false)
   const t = getT(lang ?? 'en')
 
   async function save() {
@@ -28,11 +28,18 @@ export default function Topbar() {
           .single()
         if (current && current.version !== assessment.version) {
           const reload = confirm(
-            'Someone else on your team saved this assessment while you were editing.\n\n' +
-            'Click OK to reload their latest version (your unsaved changes will be kept in your browser).\n' +
+            'A teammate saved this assessment while you were editing.\n\n' +
+            'Click OK to load their latest version.\n' +
+            'Your changes will be backed up — a "Restore my changes" button will appear.\n\n' +
             'Click Cancel to force-save your version over theirs.'
           )
           if (reload) {
+            // Back up current unsaved work before overwriting
+            const backup = {
+              savedAt:  new Date().toISOString(),
+              assessment: assessment,
+            }
+            localStorage.setItem('kmgbf-conflict-backup', JSON.stringify(backup))
             const refreshed = await loadInstitutionAssessment(user.institution_id)
             if (refreshed) setAssessment(refreshed)
             setSaving(false)
@@ -177,6 +184,8 @@ export default function Topbar() {
       const refreshed = await loadInstitutionAssessment(user.institution_id)
       if (refreshed) setAssessment({ ...refreshed, id: aid, version })
       else setAssessment({ ...assessment, id: aid, version })
+      // Clear any conflict backup — their data is now safely in DB
+      localStorage.removeItem('kmgbf-conflict-backup')
       notify(t.topbar.saved)
     } catch (e: any) {
       console.error('Save error:', e)

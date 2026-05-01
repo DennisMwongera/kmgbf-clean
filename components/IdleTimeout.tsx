@@ -28,6 +28,14 @@ export default function IdleTimeout() {
   const signOut = useCallback(async () => {
     clearAll()
     setShowWarning(false)
+    // Snapshot unsaved work before clearing (idle timeout is a security clear)
+    // User can recover from the backup key on next sign-in
+    try {
+      const stored = localStorage.getItem('kmgbf-v2')
+      if (stored) {
+        localStorage.setItem('kmgbf-idle-backup', stored)
+      }
+    } catch {}
     await supabase.auth.signOut()
     localStorage.removeItem('kmgbf-v2')
     setUser(null)

@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase/client'
 import { loadInstitutionAssessment } from '@/lib/supabase/api'
 import Sidebar from './Sidebar'
 import IdleTimeout from './IdleTimeout'
+import ConflictBanner from './ConflictBanner'
 import AssessmentStatusBar from './AssessmentStatusBar'
 import Topbar from './Topbar'
 import DashboardPage  from './pages/DashboardPage'
@@ -56,42 +57,115 @@ export default function AppShell() {
 
       if (profile) setUser(profile as any)
 
-      // Always wipe localStorage assessment when loading —
-      // then reload fresh from DB for the correct institution.
-      // This prevents stale data from a previous institution bleeding through.
+      // ── Institution isolation check ───────────────────────
+      // Validate stored assessment belongs to this user's institution
+      // If not (e.g. shared device, role change), wipe localStorage
+      let localAssessment: any = null
       try {
         const stored = JSON.parse(localStorage.getItem('kmgbf-v2') ?? '{}')
-        const storedAssessmentId = stored?.state?.assessment?.id
-        // If we have a stored assessment but the institution doesn't match, clear it
-        if (storedAssessmentId && profile?.institution_id) {
-          // Check the stored assessment belongs to this institution
+        const storedId = stored?.state?.assessment?.id
+
+        if (!profile?.institution_id) {
+          // Admin with no institution — clear localStorage, never show institution data
+          localStorage.removeItem('kmgbf-v2')
+        } else if (storedId) {
           const { data: assessCheck } = await supabase
             .from('assessments')
             .select('institution_id')
-            .eq('id', storedAssessmentId)
+            .eq('id', storedId)
             .single()
           if (assessCheck && assessCheck.institution_id !== profile.institution_id) {
+            // Wrong institution — wipe
             localStorage.removeItem('kmgbf-v2')
+          } else {
+            // Same institution — preserve local data for merge
+            localAssessment = stored?.state?.assessment
           }
-        } else if (!profile?.institution_id) {
-          // Admin with no institution — always clear
-          localStorage.removeItem('kmgbf-v2')
+        } else if (stored?.state?.assessment) {
+          // No saved ID yet (never saved to DB) but has local data — keep it
+          localAssessment = stored?.state?.assessment
         }
       } catch { localStorage.removeItem('kmgbf-v2') }
 
-      // Auto-load institution's assessment so all team members see the same data
-      // Admins with no institution_id get a blank assessment — never show stale localStorage data
+      // ── Load from DB and merge with local unsaved work ─────
       if (!profile?.institution_id) {
         const { makeAssessment } = await import('@/lib/utils')
         setAssessment(makeAssessment())
-      } else if (profile?.institution_id) {
+      } else {
         const dbAssessment = await loadInstitutionAssessment(profile.institution_id)
         if (dbAssessment) {
-          // DB is the single source of truth — no localStorage merge
-          // The merge was causing cross-institution data bleed
-          setAssessment(dbAssessment)
+          if (!localAssessment) {
+            // No local data — use DB directly
+            setAssessment(dbAssessment)
+          } else {
+            // Merge: DB wins for fields that are saved, local wins for unsaved edits
+            // We detect unsaved edits by comparing local vs DB row by row
+            const mergedCoreRows = dbAssessment.coreRows.map((dbRow: any, i: number) => {
+              const localRow = localAssessment.coreRows?.[i]
+              if (!localRow) return dbRow
+              // If local has data but DB row is blank, local may be unsaved — keep local
+              const dbHasScore   = dbRow.score !== null && dbRow.score !== undefined
+              const localHasScore = localRow.score !== null && localRow.score !== undefined
+              // If both have a score, DB wins (it was saved)
+              // If only local has a score, it may be unsaved — keep local
+              if (!dbHasScore && localHasScore) return localRow
+              // If DB has data, it wins — it was persisted
+              return dbRow
+            })
+
+            const mergedTargetRows = { ...localAssessment.targetRows, ...dbAssessment.targetRows }
+
+            const mergedPriorityRows = dbAssessment.priorityRows?.length > 0
+              ? dbAssessment.priorityRows
+              : (localAssessment.priorityRows ?? [])
+
+            const mergedCdpRows = dbAssessment.cdpRows?.length > 0
+              ? dbAssessment.cdpRows
+              : (localAssessment.cdpRows ?? [])
+
+            setAssessment({
+              ...dbAssessment,
+              coreRows:     mergedCoreRows,
+              targetRows:   mergedTargetRows,
+              priorityRows: mergedPriorityRows,
+              cdpRows:      mergedCdpRows,
+            })
+          }
+        } else if (localAssessment) {
+          // DB has no assessment yet — use local (first-time user who hasn't saved)
+          setAssessment(localAssessment)
         }
       }
+
+      // ── Restore idle-timeout backup if available ───────────
+      // When idle timeout fires, we save a backup before clearing localStorage
+      // Restore it on next sign-in for the same user
+      try {
+        const idleBackup = localStorage.getItem('kmgbf-idle-backup')
+        if (idleBackup && profile?.institution_id) {
+          const parsed = JSON.parse(idleBackup)
+          const backupAssessId = parsed?.state?.assessment?.id
+          if (backupAssessId) {
+            const { data: bc } = await supabase
+              .from('assessments')
+              .select('institution_id')
+              .eq('id', backupAssessId)
+              .single()
+            if (bc?.institution_id === profile.institution_id) {
+              // Same institution — offer to restore via conflict backup mechanism
+              const backupAssessment = parsed?.state?.assessment
+              if (backupAssessment) {
+                localStorage.setItem('kmgbf-conflict-backup', JSON.stringify({
+                  savedAt: new Date().toISOString(),
+                  assessment: backupAssessment,
+                  source: 'idle-timeout',
+                }))
+              }
+            }
+          }
+          localStorage.removeItem('kmgbf-idle-backup')
+        }
+      } catch { localStorage.removeItem('kmgbf-idle-backup') }
 
       setDataLoading(false)
     })
@@ -140,6 +214,7 @@ export default function AppShell() {
 
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
       <IdleTimeout/>
+      <ConflictBanner/>
     </div>
   )
 }
