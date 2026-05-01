@@ -141,6 +141,7 @@ export async function loadInstitutionAssessment(institutionId: string): Promise<
       budget:        r.budget_usd     ?? '',
       indicator:     r.indicator      ?? '',
       collaboration: r.collaboration  ?? '',
+      source:       (r.source         ?? 'core') as 'core' | 'target',
     }))
   }
 
