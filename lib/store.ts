@@ -124,7 +124,7 @@ export const useStore = create<Store>()(
         if (get().assessment.cdpRows.length > 0) return
         const dimScores = getDimScores(get().assessment)
         const rows = DIMENSIONS
-          .filter(d => { const s = dimScores[d]; return s !== null && s < get().assessment.required[d] })
+          .filter(d => { const s = dimScores[d]; return s !== null && s !== -1 && !isNaN(s as number) && s < get().assessment.required[d] })
           .map(d => ({ capacityGap:`${d} capacity gap`, action:'', institution:'', timeline:'', budget:'', indicator:'', collaboration:'' }))
         if (!rows.length) rows.push({ capacityGap:'', action:'', institution:'', timeline:'', budget:'', indicator:'', collaboration:'' })
         set(s => ({ assessment: { ...s.assessment, cdpRows: rows } }))

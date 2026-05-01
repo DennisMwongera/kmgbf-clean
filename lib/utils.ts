@@ -91,11 +91,19 @@ export function groupedQuestions() {
 export function gapItems(a: Assessment) {
   const dimScores = getDimScores(a)
   const items: { label:string; dim:string }[] = []
-  a.coreRows.forEach((row, i) => { if (row.gap?.trim()) items.push({ label:row.gap, dim:CORE_QUESTIONS[i].section }) })
+  // Exclude N/A rows (score === -1) — not applicable indicators
+  // cannot have capacity gaps and should not appear in the CDP
+  a.coreRows.forEach((row, i) => {
+    if (row.gap?.trim() && !isNA(row.score)) {
+      items.push({ label: row.gap, dim: CORE_QUESTIONS[i].section })
+    }
+  })
+  // Dimension-level gaps — only where dim has scorable indicators below required
+  // N/A rows are already excluded from getDimScores so dimScores is safe
   DIMENSIONS.forEach(d => {
     const s = dimScores[d]
-    if (s !== null && s !== -1 && s < a.required[d] && !items.find(x => x.dim===d))
-      items.push({ label:`${d} capacity gap`, dim:d })
+    if (s !== null && s !== -1 && isScorable(s) && s < a.required[d] && !items.find(x => x.dim === d))
+      items.push({ label: `${d} capacity gap`, dim: d })
   })
   return items
 }
