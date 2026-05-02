@@ -6,7 +6,7 @@ import { DIMENSIONS } from '@/lib/constants'
 import { getT } from '@/lib/i18n'
 import { gapItems, targetGapItems, TIMELINE_CANONICAL, toCanonical, fromCanonical } from '@/lib/utils'
 import { SectionActions } from '@/components/ui'
-import { Plus, Trash2, ClipboardList, Target } from 'lucide-react'
+import { Plus, Trash2, ClipboardList, Target, ChevronDown, ChevronUp, Star } from 'lucide-react'
 
 // ─── Single action row ─────────────────────────────────────────
 const ActionRow = memo(function ActionRow({ idx, initialRow, onUpdate, onRemove, t, readOnly }: {
@@ -136,8 +136,8 @@ function GapSubsection({ gap, cdpRows, allIndices, dim, onUpdate, onRemove, onAd
 }
 
 // ─── Dimension section ─────────────────────────────────────────
-function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, onAddAction, t, readOnly, accentColor }: {
-  dim: string; gapsInDim: string[]; accentColor: string
+function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, onAddAction, t, readOnly, accentColor, top3 }: {
+  dim: string; gapsInDim: string[]; accentColor: string; top3?: Set<string>
   cdpRows: CdpRow[]; allIndices: number[]
   onUpdate: (idx: number, field: string, val: string) => void
   onRemove: (idx: number) => void
@@ -145,8 +145,13 @@ function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, o
   t: ReturnType<typeof getT>
   readOnly?: boolean
 }) {
-  const shortDim   = dim.replace(' Capacity','').replace(' and ','/')
-  const totalActions = cdpRows.filter(r => gapsInDim.includes(r.capacityGap)).length
+  const [showAll, setShowAll]  = useState(false)
+  const shortDim               = dim.replace(' Capacity','').replace(' and ','/')
+  const totalActions           = cdpRows.filter(r => gapsInDim.includes(r.capacityGap)).length
+  const top3Gaps               = gapsInDim.filter(g => top3?.has(g))
+  const restGaps               = gapsInDim.filter(g => !top3?.has(g))
+  const visibleGaps            = showAll ? gapsInDim : (top3Gaps.length > 0 ? top3Gaps : gapsInDim.slice(0,3))
+  const hasMore                = restGaps.length > 0 && top3Gaps.length > 0
 
   return (
     <div className="mb-4 rounded-2xl overflow-hidden border border-sand-300">
@@ -157,13 +162,95 @@ function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, o
             {gapsInDim.length} gap{gapsInDim.length!==1?'s':''} · {totalActions} action{totalActions!==1?'s':''}
           </span>
         </div>
+        {top3Gaps.length > 0 && (
+          <span className="flex items-center gap-1 text-[10px] text-white opacity-70">
+            <Star size={10}/> Showing top {Math.min(3, top3Gaps.length)} priority gaps
+          </span>
+        )}
       </div>
       <div className="p-4">
-        {gapsInDim.map(gap => (
-          <GapSubsection key={gap} gap={gap} dim={dim} accentColor={accentColor}
-            cdpRows={cdpRows} allIndices={allIndices}
-            onUpdate={onUpdate} onRemove={onRemove} onAddAction={onAddAction} t={t} readOnly={readOnly}/>
+        {visibleGaps.map((gap, idx) => (
+          <div key={gap}>
+            {idx === 0 && top3Gaps.length > 0 && (
+              <div className="text-[9.5px] font-bold uppercase tracking-wide text-forest-400 mb-2 flex items-center gap-1">
+                <Star size={9} style={{ color:'#f59e0b' }}/> Top priority gaps
+              </div>
+            )}
+            <GapSubsection gap={gap} dim={dim} accentColor={accentColor}
+              cdpRows={cdpRows} allIndices={allIndices}
+              onUpdate={onUpdate} onRemove={onRemove} onAddAction={onAddAction} t={t} readOnly={readOnly}/>
+          </div>
         ))}
+        {hasMore && (
+          <button onClick={() => setShowAll(v => !v)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-sand-300 text-[12px] text-forest-400 hover:text-forest-600 hover:border-forest-300 transition-all mt-1">
+            {showAll
+              ? <><ChevronUp size={13}/> Show top 3 only</>
+              : <><ChevronDown size={13}/> Show {restGaps.length} more gap{restGaps.length!==1?'s':''}</>}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+// ─── Target section with show more ────────────────────────────
+function TargetSection({ tNum, group, rows, indices, onUpdate, onRemove, onAddAction, t, readOnly }: {
+  tNum: number
+  group: { title: string; gaps: string[]; avgScore: number | null; top3: Set<string> }
+  rows: CdpRow[]; indices: number[]
+  onUpdate: (idx: number, field: string, val: string) => void
+  onRemove: (idx: number) => void
+  onAddAction: (gap: string, source: 'core' | 'target') => void
+  t: ReturnType<typeof getT>
+  readOnly?: boolean
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const top3Gaps  = group.gaps.filter(g => group.top3.has(g))
+  const restGaps  = group.gaps.filter(g => !group.top3.has(g))
+  const visible   = showAll ? group.gaps : (top3Gaps.length > 0 ? top3Gaps : group.gaps.slice(0, 3))
+  const hasMore   = restGaps.length > 0 && top3Gaps.length > 0
+  const actions   = rows.filter(r => r.action).length
+
+  return (
+    <div className="mb-4 rounded-2xl overflow-hidden border border-blue-200">
+      <div className="flex items-center gap-3 px-4 py-2.5" style={{ background:'#1d4ed8' }}>
+        <span className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+          style={{ background:'rgba(255,255,255,.2)', color:'white' }}>
+          {tNum}
+        </span>
+        <span className="text-[12px] font-bold text-white">{group.title}</span>
+        <span className="text-[10px] opacity-60 text-white ml-auto">
+          {group.gaps.length} gap{group.gaps.length!==1?'s':''} · {actions} action{actions!==1?'s':''}
+        </span>
+        {group.avgScore !== null && (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+            style={{ background:'rgba(255,255,255,.2)', color:'white' }}>
+            avg {group.avgScore.toFixed(1)}
+          </span>
+        )}
+      </div>
+      <div className="p-4">
+        {top3Gaps.length > 0 && (
+          <div className="text-[9.5px] font-bold uppercase tracking-wide text-forest-400 mb-2 flex items-center gap-1">
+            <Star size={9} style={{ color:'#f59e0b' }}/> Top priority gaps
+          </div>
+        )}
+        {visible.map(gap => (
+          <GapSubsection key={gap} gap={gap} accentColor="#3b82f6"
+            cdpRows={rows} allIndices={indices}
+            onUpdate={onUpdate} onRemove={onRemove}
+            onAddAction={onAddAction} t={t} readOnly={readOnly}/>
+        ))}
+        {hasMore && (
+          <button onClick={() => setShowAll(v => !v)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-blue-200 text-[12px] text-blue-400 hover:text-blue-600 hover:border-blue-300 transition-all mt-1">
+            {showAll
+              ? <><ChevronUp size={13}/> Show top 3 only</>
+              : <><ChevronDown size={13}/> Show {restGaps.length} more gap{restGaps.length!==1?'s':''}</>}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -181,25 +268,46 @@ export default function CdpPage() {
   const isReadOnly   = useStore(s => s.isReadOnly())
   const t            = getT(lang ?? 'en')
 
-  // ── Core capacity gaps (from scoring) ──────────────────────
+  // ── Core capacity gaps — priority ordered ───────────────────
   const coreGaps = gapItems(assessment)
-  const coreDimGaps: Record<string, string[]> = {}
+  const coreDimGaps:  Record<string, string[]>   = {}
+  const coreDimTop3:  Record<string, Set<string>> = {}
   coreGaps.forEach(g => {
-    if (!coreDimGaps[g.dim]) coreDimGaps[g.dim] = []
+    if (!coreDimGaps[g.dim])  { coreDimGaps[g.dim] = [];         coreDimTop3[g.dim] = new Set() }
     if (!coreDimGaps[g.dim].includes(g.label)) coreDimGaps[g.dim].push(g.label)
+    if (g.isTop3) coreDimTop3[g.dim].add(g.label)
   })
-  const coreActiveDims = DIMENSIONS.filter(d => coreDimGaps[d]?.length > 0)
+  // Sort dimensions by highest autoScore of their top gap (most critical first)
+  const dimMaxScore: Record<string, number> = {}
+  coreGaps.forEach(g => {
+    if (!dimMaxScore[g.dim] || g.autoScore > dimMaxScore[g.dim])
+      dimMaxScore[g.dim] = g.autoScore
+  })
+  const coreActiveDims = DIMENSIONS
+    .filter(d => coreDimGaps[d]?.length > 0)
+    .sort((a, b) => (dimMaxScore[b] ?? 0) - (dimMaxScore[a] ?? 0))
 
-  // ── Target gaps (from target assessment) ───────────────────
+  // ── Target gaps — priority ordered ──────────────────────────
   const targetGaps = targetGapItems(assessment)
-  // Group by target number
-  const targetGroups: Record<number, { title: string; gaps: string[] }> = {}
+  // Group by target, preserving priority order within each target
+  // Targets themselves ordered by lowest avg score first
+  const targetGroups: Record<number, { title: string; gaps: string[]; avgScore: number | null; autoScore: number; top3: Set<string> }> = {}
   targetGaps.forEach(g => {
-    if (!targetGroups[g.targetNum]) targetGroups[g.targetNum] = { title: g.title, gaps: [] }
+    if (!targetGroups[g.targetNum]) {
+      targetGroups[g.targetNum] = { title: g.title, gaps: [], avgScore: g.avgScore, autoScore: g.autoScore, top3: new Set() }
+    }
     if (!targetGroups[g.targetNum].gaps.includes(g.label))
       targetGroups[g.targetNum].gaps.push(g.label)
+    if (g.isTop3) targetGroups[g.targetNum].top3.add(g.label)
   })
-  const activeTargets = Object.keys(targetGroups).map(Number).sort((a,b) => a-b)
+  // Sort targets by lowest average score first (most critical target first)
+  const activeTargets = Object.keys(targetGroups)
+    .map(Number)
+    .sort((a, b) => {
+      const aScore = targetGroups[a].avgScore ?? 5
+      const bScore = targetGroups[b].avgScore ?? 5
+      return aScore - bScore
+    })
 
   // ── Row helpers ─────────────────────────────────────────────
   function rowsForGaps(gapLabels: string[]): { rows: CdpRow[]; indices: number[] } {
@@ -273,6 +381,7 @@ export default function CdpPage() {
                 const { rows, indices } = rowsForGaps(allGapsInDim)
                 return (
                   <DimSection key={dim} dim={dim} gapsInDim={allGapsInDim} accentColor="#1b4332"
+                    top3={coreDimTop3[dim]}
                     cdpRows={rows} allIndices={indices}
                     onUpdate={handleUpdate} onRemove={handleRemove}
                     onAddAction={handleAddAction} t={t} readOnly={isReadOnly}/>
@@ -298,27 +407,10 @@ export default function CdpPage() {
                 const group = targetGroups[tNum]
                 const { rows, indices } = rowsForGaps(group.gaps)
                 return (
-                  <div key={tNum} className="mb-4 rounded-2xl overflow-hidden border border-blue-200">
-                    <div className="flex items-center gap-3 px-4 py-2.5"
-                      style={{ background:'#1d4ed8' }}>
-                      <span className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-                        style={{ background:'rgba(255,255,255,.2)', color:'white' }}>
-                        {tNum}
-                      </span>
-                      <span className="text-[12px] font-bold text-white">{group.title}</span>
-                      <span className="text-[10px] opacity-60 text-white ml-auto">
-                        {group.gaps.length} gap{group.gaps.length!==1?'s':''} · {rows.filter(r=>r.action).length} action{rows.filter(r=>r.action).length!==1?'s':''}
-                      </span>
-                    </div>
-                    <div className="p-4">
-                      {group.gaps.map(gap => (
-                        <GapSubsection key={gap} gap={gap} accentColor="#3b82f6"
-                          cdpRows={rows} allIndices={indices}
-                          onUpdate={handleUpdate} onRemove={handleRemove}
-                          onAddAction={handleAddAction} t={t} readOnly={isReadOnly}/>
-                      ))}
-                    </div>
-                  </div>
+                  <TargetSection key={tNum} tNum={tNum} group={group}
+                    rows={rows} indices={indices}
+                    onUpdate={handleUpdate} onRemove={handleRemove}
+                    onAddAction={handleAddAction} t={t} readOnly={isReadOnly}/>
                 )
               })}
             </div>

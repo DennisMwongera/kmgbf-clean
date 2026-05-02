@@ -90,55 +90,123 @@ export function groupedQuestions() {
 
 // ─── Target gap items for CDP ─────────────────────────────────
 // Returns targets where avg score < required (5) and at least one indicator scored
-export function targetGapItems(a: Assessment): { label: string; targetNum: number; title: string }[] {
-  const items: { label: string; targetNum: number; title: string }[] = []
+export function targetGapItems(a: Assessment): {
+  label: string; targetNum: number; title: string
+  avgScore: number | null; indScore: number | null; autoScore: number; isTop3: boolean
+}[] {
+  // Auto-score targets by how critical they are — purely from scores, no manual input
+  // Priority = how far below 5 the target average is (lower avg = higher need)
+  const rawItems: {
+    label: string; targetNum: number; title: string
+    avgScore: number | null; indScore: number | null; autoScore: number
+  }[] = []
+
   KMGBF_TARGETS.forEach(t => {
-    // Only include targets the institution has assigned (has at least one scored row)
-    const hasScored = t.indicators.some((_, i) => {
-      const s = a.targetRows[`t${t.num}_${i}`]?.score
-      return isScorable(s)
-    })
+    const hasScored = t.indicators.some((_, i) => isScorable(a.targetRows[`t${t.num}_${i}`]?.score))
     if (!hasScored) return
+
     const avg = getTargetAvg(a, t.num, t.indicators)
+
+    // Target-level gap — auto score = distance from 5
     if (avg !== null && avg < 5) {
-      items.push({
+      rawItems.push({
         label:     `T${t.num}: ${t.title} — capacity gap`,
         targetNum: t.num,
         title:     t.title,
+        avgScore:  avg,
+        indScore:  avg,
+        autoScore: 5 - avg,   // higher score = bigger gap = higher need
       })
     }
-    // Also include indicator-level gaps with text
+
+    // Indicator-level gap text — score based on individual indicator score
     t.indicators.forEach((_, i) => {
-      const row = a.targetRows[`t${t.num}_${i}`]
-      if (row?.gapIdentified?.trim() && isScorable(row.score)) {
-        items.push({
+      const row   = a.targetRows[`t${t.num}_${i}`]
+      const iScore = isScorable(row?.score) ? row!.score : null
+      if (row?.gapIdentified?.trim() && isScorable(iScore)) {
+        rawItems.push({
           label:     row.gapIdentified.trim(),
           targetNum: t.num,
           title:     t.title,
+          avgScore:  avg,
+          indScore:  iScore,
+          autoScore: (5 - (iScore ?? 5)) + (avg !== null ? (5 - avg) * 0.5 : 0), // indicator + target weight
         })
       }
     })
   })
-  return items
+
+  // Sort: highest autoScore first (= lowest scores = highest need), dedupe
+  const sorted = rawItems
+    .filter((item, idx, arr) => arr.findIndex(x => x.label === item.label) === idx)
+    .sort((a, b) => b.autoScore - a.autoScore)
+
+  return sorted.map((item, idx) => ({
+    ...item,
+    isTop3: idx < 3,
+  }))
 }
 
 export function gapItems(a: Assessment) {
   const dimScores = getDimScores(a)
-  const items: { label:string; dim:string }[] = []
-  // Exclude N/A rows (score === -1) — not applicable indicators
-  // cannot have capacity gaps and should not appear in the CDP
+
+  // Compute indicator-level gap score automatically:
+  // A gap's priority = how far below required the indicator's dimension is
+  // + how low the individual indicator score is
+  // No manual prioritization needed — derived purely from scores
+  function autoGapScore(indicatorScore: number | null, dimScore: number | null, required: number): number {
+    const dimGap  = required - (dimScore ?? required)        // how far dim is below required (0–5)
+    const indGap  = 5 - (indicatorScore ?? 5)                // how low indicator is (0–5)
+    return dimGap * 2 + indGap                               // weight dim gap more heavily
+  }
+
+  // Collect all gaps per dimension with auto-computed priority
+  const byDim: Record<string, { label: string; dim: string; dimScore: number | null; autoScore: number }[]> = {}
+
   a.coreRows.forEach((row, i) => {
-    if (row.gap?.trim() && !isNA(row.score)) {
-      items.push({ label: row.gap, dim: CORE_QUESTIONS[i].section })
+    if (!row.gap?.trim() || isNA(row.score)) return
+    const dim     = CORE_QUESTIONS[i].section
+    const dScore  = dimScores[dim] ?? null
+    const required = a.required[dim] ?? 5
+    if (!byDim[dim]) byDim[dim] = []
+    byDim[dim].push({
+      label:     row.gap,
+      dim,
+      dimScore:  dScore,
+      autoScore: autoGapScore(isScorable(row.score) ? row.score : null, dScore, required),
+    })
+  })
+
+  // Add dimension-level auto-gap if no indicator-level gaps exist for that dim
+  DIMENSIONS.forEach(d => {
+    const s        = dimScores[d]
+    const required = a.required[d] ?? 5
+    if (s !== null && s !== -1 && isScorable(s) && s < required) {
+      if (!byDim[d]) byDim[d] = []
+      if (!byDim[d].length) {
+        byDim[d].push({
+          label:     `${d} capacity gap`,
+          dim:       d,
+          dimScore:  s,
+          autoScore: autoGapScore(s, s, required),
+        })
+      }
     }
   })
-  // Dimension-level gaps — only where dim has scorable indicators below required
-  // N/A rows are already excluded from getDimScores so dimScores is safe
-  DIMENSIONS.forEach(d => {
-    const s = dimScores[d]
-    if (s !== null && s !== -1 && isScorable(s) && s < a.required[d] && !items.find(x => x.dim === d))
-      items.push({ label: `${d} capacity gap`, dim: d })
+
+  const items: { label: string; dim: string; dimScore: number | null; autoScore: number; isTop3: boolean }[] = []
+
+  // Sort within each dimension: highest autoScore first (= lowest scores = highest need)
+  Object.keys(byDim).forEach(dim => {
+    const sorted = byDim[dim]
+      .sort((a, b) => b.autoScore - a.autoScore)    // highest need first
+      .filter((item, idx, arr) => arr.findIndex(x => x.label === item.label) === idx) // dedupe
+
+    sorted.forEach((item, idx) => {
+      items.push({ ...item, isTop3: idx < 3 })
+    })
   })
+
   return items
 }
 

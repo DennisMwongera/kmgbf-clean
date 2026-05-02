@@ -97,6 +97,8 @@ export default function AppShell() {
           if (!localAssessment) {
             // No local data — use DB directly
             setAssessment(dbAssessment)
+            // Store base snapshot for three-way merge
+            localStorage.setItem('kmgbf-base-snapshot', JSON.stringify(dbAssessment))
           } else {
             // Merge: DB wins for fields that are saved, local wins for unsaved edits
             // We detect unsaved edits by comparing local vs DB row by row

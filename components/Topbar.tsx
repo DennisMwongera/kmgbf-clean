@@ -12,37 +12,26 @@ export default function Topbar() {
   const isReadOnly = useStore(s => s.isReadOnly())
   const [saving,         setSaving]        = useState(false)
   const [showLang,       setShowLang]       = useState(false)
-  const [conflictInfo,   setConflictInfo]   = useState<{ theirVersion: number; ourAssessment: any } | null>(null)
   const t = getT(lang ?? 'en')
-
-  async function resolveConflict(choice: 'mine' | 'theirs') {
-    if (!conflictInfo || !user?.institution_id) return
-    if (choice === 'theirs') {
-      // Load teammate's version — user's work is backed up in localStorage
-      const refreshed = await loadInstitutionAssessment(user.institution_id)
-      if (refreshed) setAssessment(refreshed)
-    } else {
-      // Force-save user's version — update our local version to match DB first
-      // so the next save doesn't conflict again
-      const { data: current } = await supabase
-        .from('assessments').select('version').eq('id', conflictInfo.ourAssessment.id).single()
-      if (current) {
-        setAssessment({ ...conflictInfo.ourAssessment, version: current.version })
-        // Trigger save after state update
-        setTimeout(() => save(), 100)
-      }
-    }
-    setConflictInfo(null)
-  }
 
   async function save() {
     if (!user) { notify(t.topbar.notSignedIn); return }
     if (!user.institution_id) { notify(t.topbar.noInstitution); return }
     setSaving(true)
     try {
-      // ── 1. Optimistic lock check ──────────────────────────
-      // Only fires when a DIFFERENT user has saved since we last loaded
-      // (same user saving = version stays same = no conflict)
+      // ── 1. Three-way field-level merge — zero data loss ─────
+      // Base   = snapshot of DB when user loaded
+      // Theirs = teammate's latest save in DB
+      // Ours   = what this user has edited locally
+      //
+      // Rule for every field:
+      //   Only we changed it  → our value wins
+      //   Only they changed   → their value wins
+      //   Both changed same field differently → BOTH values preserved:
+      //     our value goes into the field
+      //     their value appended in brackets e.g. "Our text [Teammate: Their text]"
+      //     for scores: our score kept, note added to evidence
+      //   Neither changed     → base value (unchanged)
       if (assessment.id && typeof assessment.version === 'number') {
         const { data: current } = await supabase
           .from('assessments')
@@ -50,18 +39,123 @@ export default function Topbar() {
           .eq('id', assessment.id)
           .single()
 
-        if (current && typeof current.version === 'number') {
-          const diff = current.version - assessment.version
-          // diff > 0 means a different user saved since we loaded
-          if (diff > 0) {
-            localStorage.setItem('kmgbf-conflict-backup', JSON.stringify({
-              savedAt:    new Date().toISOString(),
-              assessment: assessment,
-              source:     'conflict',
-            }))
-            setConflictInfo({ theirVersion: current.version, ourAssessment: assessment })
-            setSaving(false)
-            return
+        if (current && typeof current.version === 'number' && current.version > assessment.version) {
+          let base: any = null
+          try {
+            const raw = localStorage.getItem('kmgbf-base-snapshot')
+            if (raw) base = JSON.parse(raw)
+          } catch {}
+
+          const theirs = await loadInstitutionAssessment(user.institution_id)
+          if (theirs) {
+            let conflictCount = 0
+
+            // ── Core rows — field-level merge ───────────────────
+            const mergedCoreRows = theirs.coreRows.map((theirRow: any, i: number) => {
+              const ourRow  = assessment.coreRows[i]
+              const baseRow = base?.coreRows?.[i]
+              if (!ourRow) return theirRow
+
+              const merged = { ...theirRow }
+
+              // Text fields — concatenate if both changed
+              ;(['evidence','gap','suggestedSupport'] as const).forEach(f => {
+                const weChanged   = ourRow[f]   !== (baseRow?.[f] ?? '')
+                const theyChanged = theirRow[f] !== (baseRow?.[f] ?? '')
+                if (weChanged && !theyChanged) {
+                  merged[f] = ourRow[f]
+                } else if (weChanged && theyChanged && ourRow[f] !== theirRow[f]) {
+                  // Both changed — preserve both values
+                  merged[f] = ourRow[f]
+                    ? `${ourRow[f]} [Teammate also added: ${theirRow[f] || '(cleared)'}]`
+                    : theirRow[f]
+                  conflictCount++
+                } else if (weChanged) {
+                  merged[f] = ourRow[f]
+                }
+              })
+
+              // Score — if both changed, keep ours and note theirs in evidence
+              const weChangedScore   = ourRow.score   !== (baseRow?.score   ?? null)
+              const theyChangedScore = theirRow.score !== (baseRow?.score   ?? null)
+              if (weChangedScore && !theyChangedScore) {
+                merged.score = ourRow.score
+              } else if (weChangedScore && theyChangedScore && ourRow.score !== theirRow.score) {
+                merged.score    = ourRow.score
+                merged.evidence = merged.evidence
+                  ? `${merged.evidence} [Score conflict: you=${ourRow.score}, teammate=${theirRow.score}]`
+                  : `[Score conflict: you=${ourRow.score}, teammate=${theirRow.score}]`
+                conflictCount++
+              } else if (weChangedScore) {
+                merged.score = ourRow.score
+              }
+
+              // Priority — ours wins if we changed it
+              const weChangedPriority = ourRow.priority !== (baseRow?.priority ?? '')
+              if (weChangedPriority) merged.priority = ourRow.priority
+
+              return merged
+            })
+
+            // ── Target rows — additive with field-level merge ───
+            const mergedTargetRows = { ...theirs.targetRows }
+            Object.entries(assessment.targetRows).forEach(([key, ourVal]: [string, any]) => {
+              const theirVal = theirs.targetRows[key]
+              const baseVal  = base?.targetRows?.[key]
+              if (!theirVal) { mergedTargetRows[key] = ourVal; return }
+
+              const merged: any = { ...theirVal }
+              ;(['evidence','gapIdentified','capacityNeed'] as const).forEach(f => {
+                const weChanged   = ourVal[f] !== (baseVal?.[f] ?? '')
+                const theyChanged = theirVal[f] !== (baseVal?.[f] ?? '')
+                if (weChanged && !theyChanged) merged[f] = ourVal[f]
+                else if (weChanged && theyChanged && ourVal[f] !== theirVal[f]) {
+                  merged[f] = ourVal[f]
+                    ? `${ourVal[f]} [Teammate: ${theirVal[f] || '(cleared)'}]`
+                    : theirVal[f]
+                }
+              })
+              const weChangedScore   = ourVal.score   !== (baseVal?.score   ?? null)
+              const theyChangedScore = theirVal.score !== (baseVal?.score   ?? null)
+              if (weChangedScore && !theyChangedScore) merged.score = ourVal.score
+              else if (weChangedScore && theyChangedScore && ourVal.score !== theirVal.score) {
+                merged.score    = ourVal.score
+                merged.evidence = `${merged.evidence || ''} [Score conflict: you=${ourVal.score}, teammate=${theirVal.score}]`.trim()
+              } else if (weChangedScore) merged.score = ourVal.score
+              mergedTargetRows[key] = merged
+            })
+
+            // ── CDP rows — fully additive, no rows lost ─────────
+            const mergedCdpRows = [
+              ...theirs.cdpRows,
+              ...assessment.cdpRows.filter(r =>
+                !theirs.cdpRows.some((t: any) =>
+                  t.capacityGap === r.capacityGap && t.action === r.action
+                )
+              )
+            ]
+
+            // ── Priority rows — additive ────────────────────────
+            const mergedPriorityRows = theirs.priorityRows.length > 0
+              ? theirs.priorityRows
+              : assessment.priorityRows
+
+            const merged = {
+              ...theirs,
+              coreRows:     mergedCoreRows,
+              targetRows:   mergedTargetRows,
+              cdpRows:      mergedCdpRows,
+              priorityRows: mergedPriorityRows,
+            }
+
+            setAssessment(merged)
+            Object.assign(assessment, merged)
+
+            if (conflictCount > 0) {
+              notify(
+                `Merged with teammate's changes. ${conflictCount} field conflict${conflictCount>1?'s were':' was'} found — both values preserved in the text. Review highlighted fields before saving again.`
+              )
+            }
           }
         }
       }
@@ -201,8 +295,14 @@ export default function Topbar() {
 
       // Reload from DB to confirm all data persisted correctly
       const refreshed = await loadInstitutionAssessment(user.institution_id)
-      if (refreshed) setAssessment({ ...refreshed, id: aid, version })
-      else setAssessment({ ...assessment, id: aid, version })
+      if (refreshed) {
+        setAssessment({ ...refreshed, id: aid, version })
+        // Update base snapshot — this is now the new baseline for three-way merge
+        localStorage.setItem('kmgbf-base-snapshot', JSON.stringify({ ...refreshed, id: aid, version }))
+      } else {
+        setAssessment({ ...assessment, id: aid, version })
+        localStorage.setItem('kmgbf-base-snapshot', JSON.stringify({ ...assessment, id: aid, version }))
+      }
       // Clear any conflict backup — their data is now safely in DB
       localStorage.removeItem('kmgbf-conflict-backup')
       notify(t.topbar.saved)
@@ -221,32 +321,6 @@ export default function Topbar() {
       className="sticky top-0 z-30 h-[58px] flex items-center justify-between px-8 border-b border-sand-300"
       style={{ background: 'rgba(246,243,238,.95)', backdropFilter: 'blur(10px)' }}
     >
-      {/* Conflict banner — non-blocking, no data loss */}
-      {conflictInfo && (
-        <div style={{
-          position:'fixed', top:58, left:0, right:0, zIndex:9998,
-          background:'#1e3a5f', borderBottom:'2px solid #3b82f6',
-          padding:'10px 24px', display:'flex', alignItems:'center', gap:12,
-          fontSize:13, color:'white',
-        }}>
-          <span>👥</span>
-          <span style={{ flex:1 }}>
-            A teammate saved while you were editing. Your changes are backed up.
-            Which version do you want to keep?
-          </span>
-          <button onClick={() => resolveConflict('mine')}
-            style={{ padding:'6px 14px', borderRadius:8, border:'none', cursor:'pointer',
-              background:'#2d6a4f', color:'white', fontWeight:700, fontSize:12, whiteSpace:'nowrap' }}>
-            Keep mine → Save now
-          </button>
-          <button onClick={() => resolveConflict('theirs')}
-            style={{ padding:'6px 14px', borderRadius:8, border:'1px solid rgba(255,255,255,.3)',
-              cursor:'pointer', background:'transparent', color:'white', fontSize:12, whiteSpace:'nowrap' }}>
-            Load theirs
-          </button>
-        </div>
-      )}
-
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-[13px]">
         <span className="text-forest-400">KMGBF CNA</span>
