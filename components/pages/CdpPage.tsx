@@ -194,6 +194,68 @@ function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, o
   )
 }
 
+
+// ─── Target section with show more ────────────────────────────
+function TargetSection({ tNum, group, rows, indices, onUpdate, onRemove, onAddAction, t, readOnly }: {
+  tNum: number
+  group: { title: string; gaps: string[]; avgScore: number | null; top3: Set<string> }
+  rows: CdpRow[]; indices: number[]
+  onUpdate: (idx: number, field: string, val: string) => void
+  onRemove: (idx: number) => void
+  onAddAction: (gap: string, source: 'core' | 'target') => void
+  t: ReturnType<typeof getT>
+  readOnly?: boolean
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const top3Gaps  = group.gaps.filter(g => group.top3.has(g))
+  const restGaps  = group.gaps.filter(g => !group.top3.has(g))
+  const visible   = showAll ? group.gaps : (top3Gaps.length > 0 ? top3Gaps : group.gaps.slice(0, 3))
+  const hasMore   = restGaps.length > 0 && top3Gaps.length > 0
+  const actions   = rows.filter(r => r.action).length
+
+  return (
+    <div className="mb-4 rounded-2xl overflow-hidden border border-blue-200">
+      <div className="flex items-center gap-3 px-4 py-2.5" style={{ background:'#1d4ed8' }}>
+        <span className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+          style={{ background:'rgba(255,255,255,.2)', color:'white' }}>
+          {tNum}
+        </span>
+        <span className="text-[12px] font-bold text-white">{group.title}</span>
+        <span className="text-[10px] opacity-60 text-white ml-auto">
+          {group.gaps.length} gap{group.gaps.length!==1?'s':''} · {actions} action{actions!==1?'s':''}
+        </span>
+        {group.avgScore !== null && (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+            style={{ background:'rgba(255,255,255,.2)', color:'white' }}>
+            avg {group.avgScore.toFixed(1)}
+          </span>
+        )}
+      </div>
+      <div className="p-4">
+        {top3Gaps.length > 0 && (
+          <div className="text-[9.5px] font-bold uppercase tracking-wide text-forest-400 mb-2 flex items-center gap-1">
+            <Star size={9} style={{ color:'#f59e0b' }}/> Top priority gaps
+          </div>
+        )}
+        {visible.map(gap => (
+          <GapSubsection key={gap} gap={gap} accentColor="#3b82f6"
+            cdpRows={rows} allIndices={indices}
+            onUpdate={onUpdate} onRemove={onRemove}
+            onAddAction={onAddAction} t={t} readOnly={readOnly}/>
+        ))}
+        {hasMore && (
+          <button onClick={() => setShowAll(v => !v)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-blue-200 text-[12px] text-blue-400 hover:text-blue-600 hover:border-blue-300 transition-all mt-1">
+            {showAll
+              ? <><ChevronUp size={13}/> Show top 3 only</>
+              : <><ChevronDown size={13}/> Show {restGaps.length} more gap{restGaps.length!==1?'s':''}</>}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ─────────────────────────────────────────────────
 export default function CdpPage() {
   const assessment   = useStore(s => s.assessment)
@@ -215,18 +277,37 @@ export default function CdpPage() {
     if (!coreDimGaps[g.dim].includes(g.label)) coreDimGaps[g.dim].push(g.label)
     if (g.isTop3) coreDimTop3[g.dim].add(g.label)
   })
-  const coreActiveDims = DIMENSIONS.filter(d => coreDimGaps[d]?.length > 0)
+  // Sort dimensions by highest autoScore of their top gap (most critical first)
+  const dimMaxScore: Record<string, number> = {}
+  coreGaps.forEach(g => {
+    if (!dimMaxScore[g.dim] || g.autoScore > dimMaxScore[g.dim])
+      dimMaxScore[g.dim] = g.autoScore
+  })
+  const coreActiveDims = DIMENSIONS
+    .filter(d => coreDimGaps[d]?.length > 0)
+    .sort((a, b) => (dimMaxScore[b] ?? 0) - (dimMaxScore[a] ?? 0))
 
-  // ── Target gaps (from target assessment) ───────────────────
+  // ── Target gaps — priority ordered ──────────────────────────
   const targetGaps = targetGapItems(assessment)
-  // Group by target number
-  const targetGroups: Record<number, { title: string; gaps: string[] }> = {}
+  // Group by target, preserving priority order within each target
+  // Targets themselves ordered by lowest avg score first
+  const targetGroups: Record<number, { title: string; gaps: string[]; avgScore: number | null; autoScore: number; top3: Set<string> }> = {}
   targetGaps.forEach(g => {
-    if (!targetGroups[g.targetNum]) targetGroups[g.targetNum] = { title: g.title, gaps: [] }
+    if (!targetGroups[g.targetNum]) {
+      targetGroups[g.targetNum] = { title: g.title, gaps: [], avgScore: g.avgScore, autoScore: g.autoScore, top3: new Set() }
+    }
     if (!targetGroups[g.targetNum].gaps.includes(g.label))
       targetGroups[g.targetNum].gaps.push(g.label)
+    if (g.isTop3) targetGroups[g.targetNum].top3.add(g.label)
   })
-  const activeTargets = Object.keys(targetGroups).map(Number).sort((a,b) => a-b)
+  // Sort targets by lowest average score first (most critical target first)
+  const activeTargets = Object.keys(targetGroups)
+    .map(Number)
+    .sort((a, b) => {
+      const aScore = targetGroups[a].avgScore ?? 5
+      const bScore = targetGroups[b].avgScore ?? 5
+      return aScore - bScore
+    })
 
   // ── Row helpers ─────────────────────────────────────────────
   function rowsForGaps(gapLabels: string[]): { rows: CdpRow[]; indices: number[] } {
@@ -326,27 +407,10 @@ export default function CdpPage() {
                 const group = targetGroups[tNum]
                 const { rows, indices } = rowsForGaps(group.gaps)
                 return (
-                  <div key={tNum} className="mb-4 rounded-2xl overflow-hidden border border-blue-200">
-                    <div className="flex items-center gap-3 px-4 py-2.5"
-                      style={{ background:'#1d4ed8' }}>
-                      <span className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-                        style={{ background:'rgba(255,255,255,.2)', color:'white' }}>
-                        {tNum}
-                      </span>
-                      <span className="text-[12px] font-bold text-white">{group.title}</span>
-                      <span className="text-[10px] opacity-60 text-white ml-auto">
-                        {group.gaps.length} gap{group.gaps.length!==1?'s':''} · {rows.filter(r=>r.action).length} action{rows.filter(r=>r.action).length!==1?'s':''}
-                      </span>
-                    </div>
-                    <div className="p-4">
-                      {group.gaps.map(gap => (
-                        <GapSubsection key={gap} gap={gap} accentColor="#3b82f6"
-                          cdpRows={rows} allIndices={indices}
-                          onUpdate={handleUpdate} onRemove={handleRemove}
-                          onAddAction={handleAddAction} t={t} readOnly={isReadOnly}/>
-                      ))}
-                    </div>
-                  </div>
+                  <TargetSection key={tNum} tNum={tNum} group={group}
+                    rows={rows} indices={indices}
+                    onUpdate={handleUpdate} onRemove={handleRemove}
+                    onAddAction={handleAddAction} t={t} readOnly={isReadOnly}/>
                 )
               })}
             </div>
