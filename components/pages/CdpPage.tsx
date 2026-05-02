@@ -6,7 +6,7 @@ import { DIMENSIONS } from '@/lib/constants'
 import { getT } from '@/lib/i18n'
 import { gapItems, targetGapItems, TIMELINE_CANONICAL, toCanonical, fromCanonical } from '@/lib/utils'
 import { SectionActions } from '@/components/ui'
-import { Plus, Trash2, ClipboardList, Target } from 'lucide-react'
+import { Plus, Trash2, ClipboardList, Target, ChevronDown, ChevronUp, Star } from 'lucide-react'
 
 // ─── Single action row ─────────────────────────────────────────
 const ActionRow = memo(function ActionRow({ idx, initialRow, onUpdate, onRemove, t, readOnly }: {
@@ -136,8 +136,8 @@ function GapSubsection({ gap, cdpRows, allIndices, dim, onUpdate, onRemove, onAd
 }
 
 // ─── Dimension section ─────────────────────────────────────────
-function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, onAddAction, t, readOnly, accentColor }: {
-  dim: string; gapsInDim: string[]; accentColor: string
+function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, onAddAction, t, readOnly, accentColor, top3 }: {
+  dim: string; gapsInDim: string[]; accentColor: string; top3?: Set<string>
   cdpRows: CdpRow[]; allIndices: number[]
   onUpdate: (idx: number, field: string, val: string) => void
   onRemove: (idx: number) => void
@@ -145,8 +145,13 @@ function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, o
   t: ReturnType<typeof getT>
   readOnly?: boolean
 }) {
-  const shortDim   = dim.replace(' Capacity','').replace(' and ','/')
-  const totalActions = cdpRows.filter(r => gapsInDim.includes(r.capacityGap)).length
+  const [showAll, setShowAll]  = useState(false)
+  const shortDim               = dim.replace(' Capacity','').replace(' and ','/')
+  const totalActions           = cdpRows.filter(r => gapsInDim.includes(r.capacityGap)).length
+  const top3Gaps               = gapsInDim.filter(g => top3?.has(g))
+  const restGaps               = gapsInDim.filter(g => !top3?.has(g))
+  const visibleGaps            = showAll ? gapsInDim : (top3Gaps.length > 0 ? top3Gaps : gapsInDim.slice(0,3))
+  const hasMore                = restGaps.length > 0 && top3Gaps.length > 0
 
   return (
     <div className="mb-4 rounded-2xl overflow-hidden border border-sand-300">
@@ -157,13 +162,33 @@ function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, o
             {gapsInDim.length} gap{gapsInDim.length!==1?'s':''} · {totalActions} action{totalActions!==1?'s':''}
           </span>
         </div>
+        {top3Gaps.length > 0 && (
+          <span className="flex items-center gap-1 text-[10px] text-white opacity-70">
+            <Star size={10}/> Showing top {Math.min(3, top3Gaps.length)} priority gaps
+          </span>
+        )}
       </div>
       <div className="p-4">
-        {gapsInDim.map(gap => (
-          <GapSubsection key={gap} gap={gap} dim={dim} accentColor={accentColor}
-            cdpRows={cdpRows} allIndices={allIndices}
-            onUpdate={onUpdate} onRemove={onRemove} onAddAction={onAddAction} t={t} readOnly={readOnly}/>
+        {visibleGaps.map((gap, idx) => (
+          <div key={gap}>
+            {idx === 0 && top3Gaps.length > 0 && (
+              <div className="text-[9.5px] font-bold uppercase tracking-wide text-forest-400 mb-2 flex items-center gap-1">
+                <Star size={9} style={{ color:'#f59e0b' }}/> Top priority gaps
+              </div>
+            )}
+            <GapSubsection gap={gap} dim={dim} accentColor={accentColor}
+              cdpRows={cdpRows} allIndices={allIndices}
+              onUpdate={onUpdate} onRemove={onRemove} onAddAction={onAddAction} t={t} readOnly={readOnly}/>
+          </div>
         ))}
+        {hasMore && (
+          <button onClick={() => setShowAll(v => !v)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-sand-300 text-[12px] text-forest-400 hover:text-forest-600 hover:border-forest-300 transition-all mt-1">
+            {showAll
+              ? <><ChevronUp size={13}/> Show top 3 only</>
+              : <><ChevronDown size={13}/> Show {restGaps.length} more gap{restGaps.length!==1?'s':''}</>}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -181,12 +206,14 @@ export default function CdpPage() {
   const isReadOnly   = useStore(s => s.isReadOnly())
   const t            = getT(lang ?? 'en')
 
-  // ── Core capacity gaps (from scoring) ──────────────────────
+  // ── Core capacity gaps — priority ordered ───────────────────
   const coreGaps = gapItems(assessment)
-  const coreDimGaps: Record<string, string[]> = {}
+  const coreDimGaps:  Record<string, string[]>   = {}
+  const coreDimTop3:  Record<string, Set<string>> = {}
   coreGaps.forEach(g => {
-    if (!coreDimGaps[g.dim]) coreDimGaps[g.dim] = []
+    if (!coreDimGaps[g.dim])  { coreDimGaps[g.dim] = [];         coreDimTop3[g.dim] = new Set() }
     if (!coreDimGaps[g.dim].includes(g.label)) coreDimGaps[g.dim].push(g.label)
+    if (g.isTop3) coreDimTop3[g.dim].add(g.label)
   })
   const coreActiveDims = DIMENSIONS.filter(d => coreDimGaps[d]?.length > 0)
 
@@ -273,6 +300,7 @@ export default function CdpPage() {
                 const { rows, indices } = rowsForGaps(allGapsInDim)
                 return (
                   <DimSection key={dim} dim={dim} gapsInDim={allGapsInDim} accentColor="#1b4332"
+                    top3={coreDimTop3[dim]}
                     cdpRows={rows} allIndices={indices}
                     onUpdate={handleUpdate} onRemove={handleRemove}
                     onAddAction={handleAddAction} t={t} readOnly={isReadOnly}/>

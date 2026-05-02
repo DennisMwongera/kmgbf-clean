@@ -123,22 +123,60 @@ export function targetGapItems(a: Assessment): { label: string; targetNum: numbe
 }
 
 export function gapItems(a: Assessment) {
-  const dimScores = getDimScores(a)
-  const items: { label:string; dim:string }[] = []
-  // Exclude N/A rows (score === -1) — not applicable indicators
-  // cannot have capacity gaps and should not appear in the CDP
+  const dimScores    = getDimScores(a)
+  const priorityRows = a.priorityRows ?? []
+
+  // Build a priority score lookup by gap label
+  const priorityScore = (label: string): number => {
+    const row = priorityRows.find(r => r.capacityGap === label)
+    if (!row) return 0
+    return ((row.urgency ?? 1) * (row.impact ?? 1) * (row.feasibility ?? 1)) / 5
+  }
+
+  // Collect all gaps per dimension with their dim score
+  const byDim: Record<string, { label: string; dim: string; dimScore: number | null; pScore: number }[]> = {}
+
   a.coreRows.forEach((row, i) => {
-    if (row.gap?.trim() && !isNA(row.score)) {
-      items.push({ label: row.gap, dim: CORE_QUESTIONS[i].section })
-    }
+    if (!row.gap?.trim() || isNA(row.score)) return
+    const dim   = CORE_QUESTIONS[i].section
+    const dScore = dimScores[dim] ?? null
+    if (!byDim[dim]) byDim[dim] = []
+    byDim[dim].push({ label: row.gap, dim, dimScore: dScore, pScore: priorityScore(row.gap) })
   })
-  // Dimension-level gaps — only where dim has scorable indicators below required
-  // N/A rows are already excluded from getDimScores so dimScores is safe
+
+  // Add dimension-level auto-gap if no indicator gaps exist for that dim
   DIMENSIONS.forEach(d => {
     const s = dimScores[d]
-    if (s !== null && s !== -1 && isScorable(s) && s < a.required[d] && !items.find(x => x.dim === d))
-      items.push({ label: `${d} capacity gap`, dim: d })
+    if (s !== null && s !== -1 && isScorable(s) && s < a.required[d]) {
+      if (!byDim[d]) byDim[d] = []
+      if (!byDim[d].length) {
+        byDim[d].push({ label: `${d} capacity gap`, dim: d, dimScore: s, pScore: priorityScore(`${d} capacity gap`) })
+      }
+    }
   })
+
+  const items: { label: string; dim: string; dimScore: number | null; pScore: number; isTop3: boolean }[] = []
+
+  // For each dimension: sort by lowest dimScore first, then highest priority score
+  // Take top 3 — flag them, then append the rest
+  Object.keys(byDim).forEach(dim => {
+    const sorted = byDim[dim]
+      .sort((a, b) => {
+        // 1. Lowest dim score first (biggest gap)
+        const aScore = a.dimScore ?? 5
+        const bScore = b.dimScore ?? 5
+        if (aScore !== bScore) return aScore - bScore
+        // 2. Highest priority score (most urgent)
+        return b.pScore - a.pScore
+      })
+      // Deduplicate by label
+      .filter((item, idx, arr) => arr.findIndex(x => x.label === item.label) === idx)
+
+    sorted.forEach((item, idx) => {
+      items.push({ ...item, isTop3: idx < 3 })
+    })
+  })
+
   return items
 }
 
