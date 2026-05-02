@@ -280,6 +280,7 @@ export interface NationalCdpRow {
   source:            'core' | 'target'
   target_num:        number | null    // set when source = 'target'
   target_title:      string | null    // KMGBF target title
+  dimension:         string | null    // dimension for core gaps
 }
 
 export async function loadNationalCdpRows(
@@ -332,7 +333,7 @@ export async function loadNationalCdpRows(
 
   // ── CDP rows (source = core or target) ────────────────────
   const cdpResults: NationalCdpRow[] = (cdpRows ?? [])
-    .filter(r => r.capacity_gap || r.action)
+    .filter(r => r.action?.trim())  // only show rows where an action has been planned
     .map(r => {
       const instInfo = assessToInst.get(r.assessment_id)
       const tNum     = r.source === 'target' ? parseInt(r.capacity_gap?.match(/^T(\d+):/)?.[1] ?? '0') || null : null
@@ -350,6 +351,7 @@ export async function loadNationalCdpRows(
         source:            (r.source ?? 'core') as 'core' | 'target',
         target_num:        tNum,
         target_title:      tNum ? targetTitleMap.get(tNum) ?? null : null,
+        dimension:         r.dimension ?? null,
       }
     })
 
@@ -381,6 +383,7 @@ export async function loadNationalCdpRows(
         source:            'target',
         target_num:        r.target_num,
         target_title:      tTitle,
+        dimension:         null,
       })
     })
 

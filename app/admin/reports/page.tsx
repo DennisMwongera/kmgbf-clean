@@ -583,8 +583,8 @@ export default function AdminReportsPage() {
           <SectionHeader icon={Table2} title="National Capacity Development Plans">
             <ExportMenu mini options={[
               { label:'CSV — Core',    icon:'📋', action:() => downloadCSV([
-                  ['Institution','Capacity Gap','Action','Responsible','Timeline','Budget (USD)','Indicator','Collaboration','Status'],
-                  ...cdpRows.filter(r=>r.source==='core').map(r=>[r.institution_name,r.capacity_gap??'',r.action??'',r.institution??'',r.timeline??'',r.budget_usd??'',r.indicator??'',r.collaboration??'',r.assessment_status??''])
+                  ['Institution','Dimension','Capacity Gap','Action','Responsible','Timeline','Budget (USD)','Indicator','Collaboration','Status'],
+                  ...cdpRows.filter(r=>r.source==='core').map(r=>[r.institution_name,r.dimension??'',r.capacity_gap??'',r.action??'',r.institution??'',r.timeline??'',r.budget_usd??'',r.indicator??'',r.collaboration??'',r.assessment_status??''])
                 ], `National_Core_CDP_${date}`) },
               { label:'CSV — Targets', icon:'📋', action:() => downloadCSV([
                   ['Institution','Target','Capacity Gap','Action','Responsible','Timeline','Budget (USD)','Indicator','Collaboration','Status'],
@@ -592,8 +592,8 @@ export default function AdminReportsPage() {
                 ], `National_Target_CDP_${date}`) },
               { label:'XLSX — All',   icon:'📊', action:() => downloadXLSX([
                   { name:'Core_CDP', rows:[
-                    ['Institution','Capacity Gap','Action','Responsible','Timeline','Budget (USD)','Indicator','Collaboration','Status'],
-                    ...cdpRows.filter(r=>r.source==='core').map(r=>[r.institution_name,r.capacity_gap??'',r.action??'',r.institution??'',r.timeline??'',r.budget_usd??'',r.indicator??'',r.collaboration??'',r.assessment_status??''])
+                    ['Institution','Dimension','Capacity Gap','Action','Responsible','Timeline','Budget (USD)','Indicator','Collaboration','Status'],
+                    ...cdpRows.filter(r=>r.source==='core').map(r=>[r.institution_name,r.dimension??'',r.capacity_gap??'',r.action??'',r.institution??'',r.timeline??'',r.budget_usd??'',r.indicator??'',r.collaboration??'',r.assessment_status??''])
                   ]},
                   { name:'Target_CDP', rows:[
                     ['Institution','Target','Capacity Gap','Action','Responsible','Timeline','Budget (USD)','Indicator','Collaboration','Status'],
@@ -622,15 +622,28 @@ export default function AdminReportsPage() {
           ) : (() => {
             const coreRows   = cdpRows.filter(r => r.source === 'core')
             const targetRows = cdpRows.filter(r => r.source === 'target')
+
+            // Group by institution
+            const instIds = [...new Set(cdpRows.map(r => r.institution_id))]
+            const instNames = new Map(cdpRows.map(r => [r.institution_id, r.institution_name]))
+
+            // Status badge helper
+            const statusBadge = (s: string | null) => s ? (
+              <span className="chip text-[10px]" style={{
+                background: s==='approved'?'#d8f3dc':s==='submitted'?'#dbeafe':s==='in_review'?'#ede9fe':'#fef3c7',
+                color:      s==='approved'?'#1b4332':s==='submitted'?'#1d4ed8':s==='in_review'?'#6d28d9':'#d97706',
+              }}>{s.replace('_',' ')}</span>
+            ) : null
+
             return (
               <>
                 {/* Summary cards */}
                 <div className="grid grid-cols-4 gap-3 mb-5">
                   {[
-                    { label:'Core Actions',   value: coreRows.length,                                               color:'#1b4332' },
-                    { label:'Target Gaps',    value: targetRows.length,                                             color:'#1d4ed8' },
-                    { label:'Institutions',   value: new Set(cdpRows.map(r=>r.institution_id)).size,                color:'#d97706' },
-                    { label:'With Budget',    value: cdpRows.filter(r=>r.budget_usd).length,                        color:'#047857' },
+                    { label:'Institutions',  value: instIds.length,                              color:'#2d6a4f' },
+                    { label:'Core Actions',  value: coreRows.length,                             color:'#1b4332' },
+                    { label:'Target Gaps',   value: targetRows.length,                           color:'#1d4ed8' },
+                    { label:'With Budget',   value: cdpRows.filter(r=>r.budget_usd).length,      color:'#047857' },
                   ].map(({ label, value, color }) => (
                     <div key={label} className="card py-3 px-4" style={{ borderTop:`3px solid ${color}` }}>
                       <div className="text-[10px] font-bold tracking-[1.5px] uppercase text-forest-400 mb-1">{label}</div>
@@ -639,111 +652,179 @@ export default function AdminReportsPage() {
                   ))}
                 </div>
 
-                {/* Timeline breakdown */}
-                {coreRows.some(r=>r.timeline) && (
-                  <div className="card mb-5">
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-forest-400 mb-3">Core Actions by Timeline</div>
-                    <div className="flex flex-wrap gap-2">
-                      {['0–6 months','6–12 months','1–2 years','2–5 years','Long-term'].map(tl => {
-                        const count = coreRows.filter(r => r.timeline === tl).length
-                        if (!count) return null
-                        return (
-                          <div key={tl} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-sand-300">
-                            <span className="text-[12px] font-semibold text-forest-700">{tl}</span>
-                            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background:'#d8f3dc', color:'#1b4332' }}>{count}</span>
+                {/* ── Per-institution cards ── */}
+                {instIds.map(instId => {
+                  const instCore   = coreRows.filter(r => r.institution_id === instId)
+                  const instTarget = targetRows.filter(r => r.institution_id === instId)
+                  const instStatus = cdpRows.find(r => r.institution_id === instId)?.assessment_status ?? null
+                  if (!instCore.length && !instTarget.length) return null
+
+                  // Group core rows by capacity gap, sorted by dimension
+                  const coreByGap: Record<string, { rows: NationalCdpRow[]; dim: string | null }> = {}
+                  instCore.forEach(r => {
+                    if (!coreByGap[r.capacity_gap ?? '']) coreByGap[r.capacity_gap ?? ''] = { rows:[], dim: r.dimension ?? null }
+                    coreByGap[r.capacity_gap ?? ''].rows.push(r)
+                  })
+
+                  // Group target rows by target number
+                  const targetByNum: Record<number, NationalCdpRow[]> = {}
+                  instTarget.forEach(r => {
+                    const n = r.target_num ?? 0
+                    if (!targetByNum[n]) targetByNum[n] = []
+                    targetByNum[n].push(r)
+                  })
+
+                  return (
+                    <div key={instId} className="mb-8" style={{ breakInside:'avoid' }}>
+                      {/* Institution separator */}
+                      <div className="flex items-center gap-4 mb-0">
+                        <div style={{ height:2, width:32, background:'#52b788', borderRadius:2, flexShrink:0 }}/>
+                        <span className="text-[10px] font-bold tracking-[2px] uppercase text-forest-400">
+                          Institution
+                        </span>
+                        <div style={{ flex:1, height:1, background:'#e8e3da' }}/>
+                      </div>
+
+                      {/* Institution header card */}
+                      <div className="rounded-2xl overflow-hidden border-2 border-forest-700"
+                        style={{ boxShadow:'0 4px 20px rgba(15,45,28,.15)' }}>
+                        <div className="flex items-center justify-between px-5 py-4"
+                          style={{ background:'linear-gradient(135deg, #0f2d1c 0%, #1b4332 100%)' }}>
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                              style={{ background:'rgba(82,183,136,.2)', border:'1px solid rgba(82,183,136,.3)' }}>
+                              <Building2 size={15} style={{ color:'#52b788' }}/>
+                            </div>
+                            <div>
+                              <div className="text-[15px] font-bold text-white leading-tight">{instNames.get(instId)}</div>
+                              <div className="text-[10px] mt-0.5" style={{ color:'rgba(149,213,178,.6)' }}>
+                                Capacity Development Plan
+                              </div>
+                            </div>
                           </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
+                          <div className="flex items-center gap-3">
+                          {instCore.length > 0 && (
+                            <span className="text-[10px] px-2.5 py-1 rounded-full font-bold"
+                              style={{ background:'rgba(82,183,136,.2)', color:'#95d5b2', border:'1px solid rgba(82,183,136,.3)' }}>
+                              {instCore.length} core action{instCore.length!==1?'s':''}
+                            </span>
+                          )}
+                          {instTarget.length > 0 && (
+                            <span className="text-[10px] px-2.5 py-1 rounded-full font-bold"
+                              style={{ background:'rgba(147,197,253,.2)', color:'#93c5fd', border:'1px solid rgba(147,197,253,.3)' }}>
+                              {instTarget.length} target gap{instTarget.length!==1?'s':''}
+                            </span>
+                          )}
+                          {statusBadge(instStatus)}
+                          </div>
+                        </div>
 
-                {/* ── Section 1: Core Capacity CDP ── */}
-                {coreRows.length > 0 && (
-                  <div className="mb-6">
-                    <div className="flex items-center gap-2 mb-3">
-                      <ClipboardList size={15} style={{ color:'#1b4332' }}/>
-                      <h3 className="font-bold text-[15px]" style={{ color:'#1b4332' }}>Core Capacity Development Plans</h3>
-                      <span className="chip text-[10px]" style={{ background:'#d8f3dc', color:'#1b4332' }}>{coreRows.length} actions</span>
-                    </div>
-                    <div style={{ overflowX:'auto' }}>
-                      <table className="rt w-full" style={{ minWidth:900 }}>
-                        <thead>
-                          <tr style={{ background:'#1b4332' }}>
-                            <th style={{ color:'white' }}>Institution</th>
-                            <th style={{ color:'white' }}>Capacity Gap</th>
-                            <th style={{ color:'white' }}>Action</th>
-                            <th style={{ color:'white' }}>Responsible</th>
-                            <th style={{ color:'white' }}>Timeline</th>
-                            <th style={{ color:'white' }}>Budget</th>
-                            <th style={{ color:'white' }}>Indicator</th>
-                            <th style={{ color:'white' }}>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {coreRows.map((r, i) => (
-                            <tr key={i}>
-                              <td><span className="text-[12px] font-semibold text-forest-700">{r.institution_name}</span></td>
-                              <td className="text-[11.5px]">{r.capacity_gap||'—'}</td>
-                              <td className="text-[11.5px]">{r.action||'—'}</td>
-                              <td className="text-[11px] text-forest-400">{r.institution||'—'}</td>
-                              <td>{r.timeline ? <span className="chip text-[10px]" style={{ background:'#d8f3dc', color:'#1b4332', whiteSpace:'nowrap' }}>{r.timeline}</span> : <span className="text-forest-300">—</span>}</td>
-                              <td className="text-[11.5px] font-mono">{r.budget_usd||'—'}</td>
-                              <td className="text-[11px] text-forest-400">{r.indicator||'—'}</td>
-                              <td>{r.assessment_status && <span className="chip text-[10px]" style={{ background: r.assessment_status==='approved'?'#d8f3dc':r.assessment_status==='submitted'?'#dbeafe':'#fef3c7', color: r.assessment_status==='approved'?'#1b4332':r.assessment_status==='submitted'?'#1d4ed8':'#d97706' }}>{r.assessment_status.replace('_',' ')}</span>}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+                        <div className="p-5 space-y-5" style={{ background:'white' }}>
 
-                {/* ── Section 2: Target Action Plans ── */}
-                {targetRows.length > 0 && (
-                  <div className="mb-6">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Target size={15} style={{ color:'#1d4ed8' }}/>
-                      <h3 className="font-bold text-[15px]" style={{ color:'#1d4ed8' }}>Target-Specific Action Plans</h3>
-                      <span className="chip text-[10px]" style={{ background:'#dbeafe', color:'#1d4ed8' }}>{targetRows.length} gaps</span>
+                        {/* ── Core capacity gaps ── */}
+                        {instCore.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-3">
+                              <ClipboardList size={13} style={{ color:'#2d6a4f' }}/>
+                              <span className="text-[11px] font-bold uppercase tracking-wide text-forest-500">Core Capacity Gaps</span>
+                            </div>
+                            {Object.entries(coreByGap).map(([gap, { rows, dim }]) => (
+                              <div key={gap} className="mb-3 rounded-xl overflow-hidden border border-sand-200">
+                                {/* Gap header */}
+                                <div className="flex items-center gap-3 px-3 py-2"
+                                  style={{ background:'#f0faf4', borderBottom:'1px solid #d8f3dc' }}>
+                                  <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background:'#2d6a4f' }}/>
+                                  <span className="text-[12.5px] font-semibold text-forest-700 flex-1">{gap || '—'}</span>
+                                  {dim && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
+                                      style={{ background:'#d8f3dc', color:'#1b4332' }}>
+                                      {dim.replace(' Capacity','').replace(' and ','/')}
+                                    </span>
+                                  )}
+                                </div>
+                                {/* Actions table */}
+                                <table className="rt w-full" style={{ fontSize:11 }}>
+                                  <thead>
+                                    <tr>
+                                      <th>Action</th>
+                                      <th>Responsible</th>
+                                      <th>Timeline</th>
+                                      <th>Budget (USD)</th>
+                                      <th>Indicator</th>
+                                      <th>Collaboration</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {rows.map((r, i) => (
+                                      <tr key={i}>
+                                        <td>{r.action||'—'}</td>
+                                        <td className="text-forest-400">{r.institution||'—'}</td>
+                                        <td>{r.timeline ? <span className="chip text-[10px]" style={{ background:'#d8f3dc', color:'#1b4332', whiteSpace:'nowrap' }}>{r.timeline}</span> : '—'}</td>
+                                        <td className="font-mono">{r.budget_usd||'—'}</td>
+                                        <td className="text-forest-400">{r.indicator||'—'}</td>
+                                        <td className="text-forest-400">{r.collaboration||'—'}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* ── Target gaps ── */}
+                        {instTarget.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-3">
+                              <Target size={13} style={{ color:'#1d4ed8' }}/>
+                              <span className="text-[11px] font-bold uppercase tracking-wide text-blue-600">Target-Specific Gaps</span>
+                            </div>
+                            {Object.entries(targetByNum)
+                              .sort(([a],[b]) => Number(a)-Number(b))
+                              .map(([tNum, rows]) => (
+                              <div key={tNum} className="mb-3 rounded-xl overflow-hidden border border-blue-100">
+                                {/* Target header */}
+                                <div className="flex items-center gap-3 px-3 py-2"
+                                  style={{ background:'#eff6ff', borderBottom:'1px solid #bfdbfe' }}>
+                                  <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                                    style={{ background:'#1d4ed8', color:'white' }}>T{tNum}</span>
+                                  <span className="text-[12px] font-semibold text-blue-800">
+                                    {rows[0]?.target_title ?? `Target ${tNum}`}
+                                  </span>
+                                </div>
+                                {/* Target gaps table */}
+                                <table className="rt w-full" style={{ fontSize:11 }}>
+                                  <thead>
+                                    <tr>
+                                      <th>Capacity Gap</th>
+                                      <th>Action</th>
+                                      <th>Timeline</th>
+                                      <th>Budget (USD)</th>
+                                      <th>Capacity Need</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {rows.map((r, i) => (
+                                      <tr key={i}>
+                                        <td>{r.capacity_gap||'—'}</td>
+                                        <td>{r.action||'—'}</td>
+                                        <td>{r.timeline ? <span className="chip text-[10px]" style={{ background:'#dbeafe', color:'#1d4ed8', whiteSpace:'nowrap' }}>{r.timeline}</span> : '—'}</td>
+                                        <td className="font-mono">{r.budget_usd||'—'}</td>
+                                        <td className="text-forest-400">{r.indicator||'—'}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                      </div>
+                      </div>
                     </div>
-                    <div style={{ overflowX:'auto' }}>
-                      <table className="rt w-full" style={{ minWidth:960 }}>
-                        <thead>
-                          <tr style={{ background:'#1d4ed8' }}>
-                            <th style={{ color:'white' }}>Institution</th>
-                            <th style={{ color:'white' }}>Target</th>
-                            <th style={{ color:'white' }}>Capacity Gap</th>
-                            <th style={{ color:'white' }}>Action</th>
-                            <th style={{ color:'white' }}>Timeline</th>
-                            <th style={{ color:'white' }}>Capacity Need</th>
-                            <th style={{ color:'white' }}>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {targetRows.map((r, i) => (
-                            <tr key={i}>
-                              <td><span className="text-[12px] font-semibold text-forest-700">{r.institution_name}</span></td>
-                              <td>
-                                {r.target_num && (
-                                  <div>
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full mr-1" style={{ background:'#dbeafe', color:'#1d4ed8' }}>T{r.target_num}</span>
-                                    <span className="text-[11px] text-forest-600">{r.target_title}</span>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="text-[11.5px]">{r.capacity_gap||'—'}</td>
-                              <td className="text-[11.5px]">{r.action||'—'}</td>
-                              <td>{r.timeline ? <span className="chip text-[10px]" style={{ background:'#dbeafe', color:'#1d4ed8', whiteSpace:'nowrap' }}>{r.timeline}</span> : <span className="text-forest-300">—</span>}</td>
-                              <td className="text-[11px] text-forest-400">{r.indicator||'—'}</td>
-                              <td>{r.assessment_status && <span className="chip text-[10px]" style={{ background: r.assessment_status==='approved'?'#d8f3dc':r.assessment_status==='submitted'?'#dbeafe':'#fef3c7', color: r.assessment_status==='approved'?'#1b4332':r.assessment_status==='submitted'?'#1d4ed8':'#d97706' }}>{r.assessment_status.replace('_',' ')}</span>}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+                  )
+                })}
               </>
             )
           })()}
