@@ -28,6 +28,7 @@ export interface CdpRow {
   capacityGap: string; action: string; institution: string
   timeline: string; budget: string; indicator: string; collaboration: string
   source?: 'core' | 'target'  // tracks which section this row belongs to
+  dimension?: string            // KMGBF dimension for core gaps
 }
 
 export interface Assessment {

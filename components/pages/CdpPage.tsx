@@ -89,7 +89,8 @@ function GapSubsection({ gap, cdpRows, allIndices, dim, onUpdate, onRemove, onAd
   cdpRows: CdpRow[]; allIndices: number[]
   onUpdate: (idx: number, field: string, val: string) => void
   onRemove: (idx: number) => void
-  onAddAction: (gap: string, source: 'core' | 'target') => void
+  onAddAction: (gap: string, source: 'core' | 'target', dimension?: string) => void
+  dim?: string
   t: ReturnType<typeof getT>
   readOnly?: boolean
 }) {
@@ -112,7 +113,7 @@ function GapSubsection({ gap, cdpRows, allIndices, dim, onUpdate, onRemove, onAd
         {!readOnly && (
           <button className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
             style={{ background:`${accentColor}20`, color: accentColor }}
-            onClick={() => onAddAction(gap, source)}>
+            onClick={() => onAddAction(gap, source, dim)}>
             <Plus size={11}/> Add action
           </button>
         )}
@@ -141,7 +142,7 @@ function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, o
   cdpRows: CdpRow[]; allIndices: number[]
   onUpdate: (idx: number, field: string, val: string) => void
   onRemove: (idx: number) => void
-  onAddAction: (gap: string, source: 'core' | 'target') => void
+  onAddAction: (gap: string, source: 'core' | 'target', dimension?: string) => void
   t: ReturnType<typeof getT>
   readOnly?: boolean
 }) {
@@ -318,8 +319,8 @@ export default function CdpPage() {
     return { rows, indices }
   }
 
-  function handleAddAction(gap: string, source: 'core' | 'target') {
-    addCdpRow(gap, source)
+  function handleAddAction(gap: string, source: 'core' | 'target', dimension?: string) {
+    addCdpRow(gap, source, dimension)
   }
 
   const handleUpdate = useCallback((idx: number, field: string, val: string) => {

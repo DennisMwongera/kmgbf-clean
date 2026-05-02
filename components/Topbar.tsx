@@ -249,7 +249,7 @@ export default function Topbar() {
 
       // ── 6. CDP rows (delete + re-insert to preserve order) ──
       await supabase.from('cdp_rows').delete().eq('assessment_id', aid)
-      const activeCdp = assessment.cdpRows.filter(r => r.capacityGap || r.action)
+      const activeCdp = assessment.cdpRows.filter(r => r.action?.trim())  // only save rows with an actual action
       if (activeCdp.length) {
         const { error: cdpErr } = await supabase.from('cdp_rows').insert(
           activeCdp.map((r, i) => ({
@@ -263,6 +263,7 @@ export default function Topbar() {
             indicator:     r.indicator     || null,
             collaboration: r.collaboration || null,
             source:        r.source        || 'core',
+            dimension:     r.dimension      || null,
           }))
         )
         if (cdpErr) throw cdpErr
