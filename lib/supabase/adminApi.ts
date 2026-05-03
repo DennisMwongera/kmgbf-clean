@@ -331,12 +331,161 @@ export async function loadNationalCdpRows(
   // ── Build target title map ─────────────────────────────────
   const targetTitleMap = new Map(KMGBF_TARGETS.map(t => [t.num, t.title]))
 
+  // ── Load core_responses + priority_rows to derive dimension ──────
+  const [
+    { data: coreResponses },
+    { data: priorityRowsData },
+  ] = await Promise.all([
+    supabase.from('core_responses')
+      .select('assessment_id, dimension, gap, score')
+      .in('assessment_id', assessIds),
+    supabase.from('priority_rows')
+      .select('assessment_id, capacity_gap, urgency, impact, feasibility')
+      .in('assessment_id', assessIds),
+  ])
+
+  // Build multiple lookups for maximum gap → dimension coverage:
+  // 1. exact gap text → dimension
+  const gapToDimMap = new Map<string, string>()
+  // 2. assessmentId+gap → dimension
+  const assessGapToDimMap = new Map<string, string>()
+  // 3. dim → lowest scoring assessment (for unresolved gaps, assign to weakest dim)
+  const assessWeakestDim = new Map<string, string>()
+
+  ;(coreResponses ?? []).forEach(r => {
+    if (!r.dimension) return
+    // gap text lookups
+    if (r.gap?.trim()) {
+      gapToDimMap.set(r.gap.trim(), r.dimension)
+      assessGapToDimMap.set(`${r.assessment_id}::${r.gap.trim()}`, r.dimension)
+    }
+    // track weakest dimension per assessment (lowest score)
+    const key = r.assessment_id
+    const current = assessWeakestDim.get(key)
+    if (!current && r.score !== null && r.score !== -1) {
+      assessWeakestDim.set(key, r.dimension)
+    }
+  })
+
+  // 4. priority_rows gap text → dimension via cross-reference with core_responses
+  const priorityGapToDimMap = new Map<string, string>()
+  ;(priorityRowsData ?? []).forEach(pr => {
+    const dim = assessGapToDimMap.get(`${pr.assessment_id}::${pr.capacity_gap?.trim()}`)
+      ?? gapToDimMap.get(pr.capacity_gap?.trim() ?? '')
+    if (dim && pr.capacity_gap?.trim()) {
+      priorityGapToDimMap.set(pr.capacity_gap.trim(), dim)
+    }
+  })
+
+  // Auto-generated dimension-level gap labels → their dimension
+  const DIMENSION_NAMES = [
+    'Policy and Legal Capacity',
+    'Institutional Capacity',
+    'Technical Capacity',
+    'Financial Capacity',
+    'Coordination and Governance',
+    'Knowledge and Information Management',
+    'Infrastructure and Equipment',
+    'Awareness and Capacity Development',
+  ]
+  const DIM_AUTO_MAP: Record<string, string> = {}
+  DIMENSION_NAMES.forEach(d => {
+    DIM_AUTO_MAP[`${d} capacity gap`] = d
+    DIM_AUTO_MAP[d] = d  // exact match too
+  })
+
+  // ── Keyword map: every meaningful word/phrase that signals a dimension ──
+  // Covers English keywords, French equivalents, abbreviations and partials
+  const DIM_KEYWORDS: { dim: string; keywords: string[] }[] = [
+    { dim: 'Policy and Legal Capacity', keywords: [
+        'policy','legal','law','legislation','regulation','juridique','loi',
+        'politique','réglementation','reglementation','normes','norms',
+        'cadre','framework','enforcement','application','compliance',
+        'legalidad','política','ley','regulación',
+    ]},
+    { dim: 'Institutional Capacity', keywords: [
+        'institutional','institution','organis','organisational','organizational',
+        'governance','structure','mandate','mandaté','capacité institutionnelle',
+        'ressources humaines','human resource','staff','personnel','coordination',
+        'institutionnel','institutionnelle','gestion','management','administration',
+    ]},
+    { dim: 'Technical Capacity', keywords: [
+        'technical','technique','technisch','gis','mapping','monitoring',
+        'data','données','information','assessment','évaluation','surveillance',
+        'expertise','compétence','skill','formation technique','species',
+        'ecosystem','biodiversity','biodiversité','conservation','restoration',
+    ]},
+    { dim: 'Financial Capacity', keywords: [
+        'financial','finance','financier','financement','budget','funding',
+        'fund','fonds','ressources financières','mobilisation','mobilization',
+        'investissement','investment','cost','coût','allocation','financer',
+        'económico','financiero','presupuesto',
+    ]},
+    { dim: 'Coordination and Governance', keywords: [
+        'coordination','gouvernance','governance','stakeholder','parties prenantes',
+        'collaboration','partnership','partenariat','inter-ministerial',
+        'interministerial','multi-sectoral','multisectoriel','engagement',
+        'consultation','concertation','dialogue','synergy','synergie',
+    ]},
+    { dim: 'Knowledge and Information Management', keywords: [
+        'knowledge','connaissance','information',"gestion de l'information",
+        'database','base de données','research','recherche','science',
+        'reporting','rapport','publication','documentation','archive',
+        "système d'information",'information system','indicator','indicateur',
+        'suivi-évaluation','monitoring evaluation','m&e',
+    ]},
+    { dim: 'Infrastructure and Equipment', keywords: [
+        'infrastructure','equipment','équipement','matériel','laboratory',
+        'laboratoire','vehicle','véhicule','facility','installation',
+        'technology','technologie','logistics','logistique','tool','outil',
+        'hardware','software','logiciel','network','réseau',
+    ]},
+    { dim: 'Awareness and Capacity Development', keywords: [
+        'awareness','sensibilisation','communication','outreach','training',
+        'formation','renforcement','capacity development','renforcement des capacités',
+        'education','éducation','capacity building','education','public',
+        'community','communauté','media','médias','campaign','campagne',
+        'sensitization','vulgarisation',
+    ]},
+  ]
+
+  function fuzzyDimMatch(gap: string): string | null {
+    const lower = gap.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents
+    for (const { dim, keywords } of DIM_KEYWORDS) {
+      for (const kw of keywords) {
+        const kwNorm = kw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+        if (lower.includes(kwNorm)) return dim
+      }
+    }
+    return null
+  }
+
+  function resolveDimension(row: any): string | null {
+    // 1. Already stored in column (treat empty string as null)
+    if (row.dimension?.trim()) return row.dimension.trim()
+    const gap = row.capacity_gap?.trim()
+    if (!gap) return null
+    // 2. Assessment-specific gap text lookup (most precise)
+    const assessKey = `${row.assessment_id}::${gap}`
+    if (assessGapToDimMap.has(assessKey)) return assessGapToDimMap.get(assessKey)!
+    // 3. Global gap text lookup across all assessments
+    if (gapToDimMap.has(gap)) return gapToDimMap.get(gap)!
+    // 4. Auto-generated dimension gap label
+    if (DIM_AUTO_MAP[gap]) return DIM_AUTO_MAP[gap]
+    // 5. Priority rows cross-reference
+    if (priorityGapToDimMap.has(gap)) return priorityGapToDimMap.get(gap)!
+    // 6. Fuzzy match — if gap text mentions a dimension name
+    return fuzzyDimMatch(gap)
+  }
+
   // ── CDP rows (source = core or target) ────────────────────
   const cdpResults: NationalCdpRow[] = (cdpRows ?? [])
     .filter(r => r.action?.trim())  // only show rows where an action has been planned
     .map(r => {
       const instInfo = assessToInst.get(r.assessment_id)
-      const tNum     = r.source === 'target' ? parseInt(r.capacity_gap?.match(/^T(\d+):/)?.[1] ?? '0') || null : null
+      const isTargetGap = r.source === 'target' || /^T\d+:/.test(r.capacity_gap ?? '') || (r.target_num !== null && r.target_num > 0)
+      const tNum        = isTargetGap ? parseInt(r.capacity_gap?.match(/^T(\d+):/)?.[1] ?? '0') || null : null
+      const source      = isTargetGap ? 'target' : 'core'
       return {
         institution_name:  instMap.get(instInfo?.instId ?? '') ?? 'Unknown',
         institution_id:    instInfo?.instId ?? '',
@@ -348,10 +497,10 @@ export async function loadNationalCdpRows(
         indicator:         r.indicator,
         collaboration:     r.collaboration,
         assessment_status: instInfo?.status ?? null,
-        source:            (r.source ?? 'core') as 'core' | 'target',
+        source,
         target_num:        tNum,
         target_title:      tNum ? targetTitleMap.get(tNum) ?? null : null,
-        dimension:         r.dimension ?? null,
+        dimension:         isTargetGap ? null : resolveDimension(r),
       }
     })
 
