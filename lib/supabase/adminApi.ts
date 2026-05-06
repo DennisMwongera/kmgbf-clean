@@ -309,18 +309,12 @@ export async function loadNationalCdpRows(
   // ── Fetch CDP rows, target responses, institutions in parallel
   const [
     { data: cdpRows },
-    { data: targetRows },
     { data: institutions },
   ] = await Promise.all([
     supabase.from('cdp_rows')
       .select('*')
       .in('assessment_id', assessIds)
       .order('assessment_id').order('sort_order'),
-    supabase.from('target_responses')
-      .select('assessment_id, target_num, indicator_index, score, gap_identified, capacity_need')
-      .in('assessment_id', assessIds)
-      .not('gap_identified', 'is', null)
-      .neq('score', -1),
     supabase.from('institutions').select('id, name').in('id', instIds),
   ])
 
@@ -478,63 +472,48 @@ export async function loadNationalCdpRows(
     return fuzzyDimMatch(gap)
   }
 
-  // ── CDP rows (source = core or target) ────────────────────
+  // ── CDP rows — both core and target actions ─────────────────
+  // source='core'   → core capacity CDP actions
+  // source='target' → target-specific CDP actions
+  // cdp_rows already has everything — no need to join other tables
+  // ── Build a map of target gap labels → target number from cdp_rows ──
+  // Indicator-level gaps (e.g. "cadre juridique trop vague") have no T-prefix.
+  // We resolve their target_num via the source field OR the T-prefix on capacity_gap.
+  // For indicator gaps saved correctly as source='target', we look up the target_num
+  // from the capacity_gap label pattern OR fall back to 0.
   const cdpResults: NationalCdpRow[] = (cdpRows ?? [])
-    .filter(r => r.action?.trim())  // only show rows where an action has been planned
+    .filter(r => r.capacity_gap?.trim()) // only filter rows with no gap at all
     .map(r => {
       const instInfo = assessToInst.get(r.assessment_id)
-      const isTargetGap = r.source === 'target' || /^T\d+:/.test(r.capacity_gap ?? '') || (r.target_num !== null && r.target_num > 0)
-      const tNum        = isTargetGap ? parseInt(r.capacity_gap?.match(/^T(\d+):/)?.[1] ?? '0') || null : null
-      const source      = isTargetGap ? 'target' : 'core'
+
+      // Detect target rows: source field is authoritative after the fix.
+      // Also catch legacy rows via T-prefix pattern.
+      const isTarget = r.source === 'target' || /^T\d+:/.test(r.capacity_gap ?? '')
+
+      // Extract target number:
+      // 1. T-prefix on capacity_gap (auto-generated label "T1: Spatial Planning — capacity gap")
+      // 2. target_num column if it exists on the row
+      // 3. null (indicator-level gap text — grouped under the target via source only)
+      const tNumFromPrefix = parseInt((r.capacity_gap ?? '').match(/^T(\d+):/)?.[1] ?? '0') || null
+      const tNum = tNumFromPrefix ?? (r.target_num && r.target_num > 0 ? r.target_num : null)
+
       return {
         institution_name:  instMap.get(instInfo?.instId ?? '') ?? 'Unknown',
         institution_id:    instInfo?.instId ?? '',
         capacity_gap:      r.capacity_gap,
-        action:            r.action,
+        action:            r.action ?? '',
         institution:       r.institution,
         timeline:          r.timeline,
         budget_usd:        r.budget_usd,
         indicator:         r.indicator,
         collaboration:     r.collaboration,
         assessment_status: instInfo?.status ?? null,
-        source,
+        source:            isTarget ? 'target' : 'core',
         target_num:        tNum,
         target_title:      tNum ? targetTitleMap.get(tNum) ?? null : null,
-        dimension:         isTargetGap ? null : resolveDimension(r),
+        dimension:         isTarget ? null : resolveDimension(r),
       }
     })
 
-  // ── Target response gaps (indicator-level gaps from target assessment)
-  // These are gaps identified in target_responses.gap_identified
-  // Group by institution + target to avoid duplicating the same gap
-  const targetGapResults: NationalCdpRow[] = []
-  const seen = new Set<string>()
-
-  ;(targetRows ?? [])
-    .filter(r => r.gap_identified?.trim() && r.score !== null && r.score !== -1)
-    .forEach(r => {
-      const instInfo = assessToInst.get(r.assessment_id)
-      const key      = `${r.assessment_id}-T${r.target_num}-${r.gap_identified}`
-      if (seen.has(key)) return
-      seen.add(key)
-      const tTitle = targetTitleMap.get(r.target_num) ?? null
-      targetGapResults.push({
-        institution_name:  instMap.get(instInfo?.instId ?? '') ?? 'Unknown',
-        institution_id:    instInfo?.instId ?? '',
-        capacity_gap:      r.gap_identified,
-        action:            null,  // no action planned yet at national level
-        institution:       null,
-        timeline:          null,
-        budget_usd:        null,
-        indicator:         r.capacity_need ?? null,
-        collaboration:     null,
-        assessment_status: instInfo?.status ?? null,
-        source:            'target',
-        target_num:        r.target_num,
-        target_title:      tTitle,
-        dimension:         null,
-      })
-    })
-
-  return [...cdpResults, ...targetGapResults]
+  return cdpResults
 }

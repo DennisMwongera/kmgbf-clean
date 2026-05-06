@@ -29,6 +29,7 @@ export interface CdpRow {
   timeline: string; budget: string; indicator: string; collaboration: string
   source?: 'core' | 'target'  // tracks which section this row belongs to
   dimension?: string            // KMGBF dimension for core gaps
+  tNum?: number                 // KMGBF target number for target gaps
 }
 
 export interface Assessment {

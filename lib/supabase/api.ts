@@ -143,6 +143,7 @@ export async function loadInstitutionAssessment(institutionId: string): Promise<
       collaboration: r.collaboration  ?? '',
       source:       (r.source         ?? 'core') as 'core' | 'target',
       dimension:    r.dimension      ?? undefined,
+      tNum:         r.target_num     ?? undefined
     }))
   }
 
