@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { loadAllInstitutionReports, buildNationalReport, loadNationalCdpRows, type InstitutionReport, type NationalReport, type NationalCdpRow } from '@/lib/supabase/adminApi'
+import { loadAllInstitutionReports, buildNationalReport, loadNationalCdpRows, loadArchivedCdpRows, archiveCdpRow, restoreCdpRow, archiveGapRows, restoreGapRows, type InstitutionReport, type NationalReport, type NationalCdpRow } from '@/lib/supabase/adminApi'
 import { DIMENSIONS, KMGBF_TARGETS } from '@/lib/constants'
 import { Chart, RadarController, RadialLinearScale, PointElement, LineElement, Filler,
          BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js'
@@ -10,7 +10,8 @@ import { exportNationalPDF } from '@/lib/pdfExport'
 import ExportMenu from '@/components/ExportMenu'
 import {
   Globe, Radar, BarChart2, Target, Download, Loader2,
-  Building2, ClipboardList, TrendingUp, ArrowRight, ChevronRight, ChevronDown, Table2, FileDown
+  Building2, ClipboardList, TrendingUp, ArrowRight, ChevronRight, ChevronDown, Table2, FileDown,
+  Archive, ArchiveRestore, AlertTriangle
 } from 'lucide-react'
 
 Chart.register(RadarController, RadialLinearScale, PointElement, LineElement, Filler,
@@ -169,6 +170,9 @@ export default function AdminReportsPage() {
   const [cdpLoading,   setCdpLoading]   = useState(false)
   const [cdpLoaded,    setCdpLoaded]    = useState(false)
   const [cdpTab,       setCdpTab]       = useState<'core'|'targets'>('core')
+  const [archivedRows, setArchivedRows] = useState<NationalCdpRow[]>([])
+  const [showArchived, setShowArchived] = useState(false)
+  const [archiving,    setArchiving]    = useState<string | null>(null)
 
   const nationalRadarRef = useRef<HTMLCanvasElement>(null)
   const multiBarRef      = useRef<HTMLCanvasElement>(null)
@@ -205,9 +209,116 @@ export default function AdminReportsPage() {
   async function loadCdp(instIds?: string[]) {
     setCdpLoading(true)
     const rows = await loadNationalCdpRows(instIds?.length ? instIds : undefined)
+    // Debug: confirm id is populated
+    if (rows.length > 0) {
+      console.log('[CDP] First row id:', rows[0].id, '| assessment_id:', rows[0].assessment_id)
+    }
     setCdpRows(rows)
     setCdpLoading(false)
     setCdpLoaded(true)
+  }
+
+  // Archive a single action row — accepts full row, uses id if available else composite key
+  async function handleArchive(row: NationalCdpRow) {
+    const rowId = row.id
+    const key   = rowId ?? `${row.assessment_id}::${row.capacity_gap}::${row.sort_order}`
+    if (!row.assessment_id) { console.error('Archive called with no assessment_id'); return }
+    setArchiving(key)
+    let ok = false
+    if (rowId) {
+      ok = await archiveCdpRow(rowId)
+    } else {
+      ok = await archiveCdpRowByKey(row.assessment_id, row.capacity_gap ?? '', row.sort_order ?? 0)
+    }
+    if (ok) {
+      // Remove archived row from active list immediately
+      setCdpRows(prev => prev.filter(r =>
+        rowId
+          ? r.id !== rowId
+          : !(r.assessment_id === row.assessment_id &&
+              r.capacity_gap  === row.capacity_gap  &&
+              r.sort_order    === row.sort_order)
+      ))
+      if (showArchived) {
+        const archived = await loadArchivedCdpRows([...selectedIds])
+        setArchivedRows(archived)
+      }
+    }
+    setArchiving(null)
+  }
+
+  // Archive all actions under a gap label for a given institution
+  async function handleArchiveGap(assessmentId: string, capacityGap: string) {
+    if (!assessmentId || !capacityGap) { console.error('ArchiveGap called with missing params', { assessmentId, capacityGap }); return }
+    setArchiving(`gap::${assessmentId}::${capacityGap}`)
+    const ok = await archiveGapRows(assessmentId, capacityGap)
+    if (ok) {
+      setCdpRows(prev => prev.filter(r =>
+        !(r.assessment_id === assessmentId && r.capacity_gap === capacityGap)
+      ))
+      if (showArchived) {
+        const archived = await loadArchivedCdpRows([...selectedIds])
+        setArchivedRows(archived)
+      }
+    }
+    setArchiving(null)
+  }
+
+  // Restore a single action row — uses id if available else composite key
+  async function handleRestore(row: NationalCdpRow) {
+    const rowId = row.id
+    const key   = rowId ?? `${row.assessment_id}::${row.capacity_gap}::${row.sort_order}`
+    if (!row.assessment_id) { console.error('Restore called with no assessment_id'); return }
+    setArchiving(key)
+    let ok = false
+    if (rowId) {
+      ok = await restoreCdpRow(rowId)
+    } else {
+      ok = await restoreCdpRowByKey(row.assessment_id, row.capacity_gap ?? '', row.sort_order ?? 0)
+    }
+    if (ok) {
+      const remaining = archivedRows.filter(r =>
+        rowId
+          ? r.id !== rowId
+          : !(r.assessment_id === row.assessment_id &&
+              r.capacity_gap  === row.capacity_gap  &&
+              r.sort_order    === row.sort_order)
+      )
+      setArchivedRows(remaining)
+      await loadCdp([...selectedIds])
+      if (remaining.length === 0) setShowArchived(false)
+    }
+    setArchiving(null)
+  }
+
+  // Restore all actions under an archived gap
+  async function handleRestoreGap(assessmentId: string, capacityGap: string) {
+    const key = `gap::${assessmentId}::${capacityGap}`
+    setArchiving(key)
+    const ok = await restoreGapRows(assessmentId, capacityGap)
+    if (ok) {
+      // Remove all matching rows from archived panel immediately
+      setArchivedRows(prev => prev.filter(r =>
+        !(r.assessment_id === assessmentId && r.capacity_gap === capacityGap)
+      ))
+      // Reload active CDP rows so restored gap appears in report
+      await loadCdp([...selectedIds])
+      // Reload archived list to sync count
+      const archived = await loadArchivedCdpRows([...selectedIds])
+      setArchivedRows(archived)
+      // Close archived panel — return user to the report view
+      setShowArchived(false)
+    }
+    setArchiving(null)
+  }
+
+  async function toggleArchived() {
+    const next = !showArchived
+    setShowArchived(next)
+    if (next && archivedRows.length === 0) {
+      const archived = await loadArchivedCdpRows([...selectedIds])
+      setArchivedRows(archived)
+    }
   }
 
   function selectAll() { setSelectedIds(new Set(allReports.map(r => r.institution.id))) }
@@ -744,6 +855,106 @@ export default function AdminReportsPage() {
                   ))}
                 </div>
 
+                {/* ══ Archived rows toggle ══ */}
+                <div className="mb-4 flex items-center gap-3">
+                  <button onClick={toggleArchived}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all"
+                    style={{ background: showArchived ? '#fef3c7' : 'white', borderColor: showArchived ? '#d97706' : '#e5e7eb', color: showArchived ? '#d97706' : '#6b7280' }}>
+                    <Archive size={12}/>
+                    {showArchived ? 'Hide Archived' : 'Show Archived'}
+                    {archivedRows.length > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+                        style={{ background:'#fef3c7', color:'#d97706' }}>
+                        {archivedRows.length}
+                      </span>
+                    )}
+                  </button>
+                  {showArchived && archivedRows.length > 0 && (
+                    <span className="text-[11.5px] text-amber-600 flex items-center gap-1">
+                      <AlertTriangle size={12}/> Archived rows are excluded from the report and exports
+                    </span>
+                  )}
+                </div>
+
+                {/* ══ Archived rows panel ══ */}
+                {showArchived && (
+                  <div className="mb-6 rounded-2xl overflow-hidden border-2 border-amber-200">
+                    <div className="flex items-center gap-3 px-5 py-3" style={{ background:'#fef3c7' }}>
+                      <Archive size={15} style={{ color:'#d97706' }}/>
+                      <span className="text-[13px] font-bold" style={{ color:'#d97706' }}>
+                        Archived Rows — {archivedRows.length} row{archivedRows.length!==1?'s':''}
+                      </span>
+                      <span className="text-[11px] text-amber-600 ml-2">Click restore to bring a row back into the report</span>
+                    </div>
+                    {archivedRows.length === 0 ? (
+                      <div className="px-5 py-8 text-center text-[12.5px] text-forest-400 bg-white">
+                        No archived rows yet.
+                      </div>
+                    ) : (
+                      <div className="bg-white overflow-x-auto">
+                        <table className="rt w-full" style={{ fontSize:11 }}>
+                          <thead>
+                            <tr style={{ background:'#fffbeb' }}>
+                              <th>Institution</th>
+                              <th>Type</th>
+                              <th>Capacity Gap</th>
+                              <th>Action</th>
+                              <th>Archived</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {archivedRows.map((r, i) => (
+                              <tr key={i} style={{ opacity:0.75 }}>
+                                <td className="font-medium">{r.institution_name}</td>
+                                <td>
+                                  <span className="chip text-[10px]"
+                                    style={{ background: r.source==='target'?'#dbeafe':'#d8f3dc', color: r.source==='target'?'#1d4ed8':'#1b4332' }}>
+                                    {r.source==='target' ? `T${r.target_num ?? '?'}` : r.dimension?.replace(' Capacity','') ?? 'Core'}
+                                  </span>
+                                </td>
+                                <td className="text-forest-400 max-w-xs truncate" title={r.capacity_gap ?? ''}>{r.capacity_gap||'—'}</td>
+                                <td className="text-forest-400 max-w-xs truncate" title={r.action ?? ''}>{r.action||'—'}</td>
+                                <td className="text-[10px] text-forest-300">
+                                  {r.archived_at ? new Date(r.archived_at).toLocaleDateString() : '—'}
+                                </td>
+                                <td>
+                                  <div className="flex items-center gap-1.5">
+                                    {/* Restore single action */}
+                                    <button
+                                      title="Restore this action only"
+                                      onClick={() => handleRestore(r)}
+                                      disabled={!!archiving}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all hover:bg-green-50"
+                                      style={{ color:'#2d6a4f', border:'1px solid #d8f3dc' }}>
+                                      {archiving === r.id
+                                        ? <Loader2 size={9} className="animate-spin"/>
+                                        : <ArchiveRestore size={9}/>}
+                                      Action
+                                    </button>
+                                    {/* Restore all actions for this gap */}
+                                    <button
+                                      title="Restore all actions for this gap"
+                                      onClick={() => handleRestoreGap(r.assessment_id, r.capacity_gap ?? '')}
+                                      disabled={!!archiving}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all hover:bg-green-50"
+                                      style={{ color:'#2d6a4f', border:'1px solid #d8f3dc' }}>
+                                      {archiving === `gap::${r.assessment_id}::${r.capacity_gap}`
+                                        ? <Loader2 size={9} className="animate-spin"/>
+                                        : <ArchiveRestore size={9}/>}
+                                      Gap
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* ══ Inner tabs: Core / Targets ══ */}
                 <div className="flex gap-1 mb-5 bg-sand-100 p-1 rounded-xl w-fit">
                   <button onClick={() => setCdpTab('core')}
@@ -839,6 +1050,21 @@ export default function AdminReportsPage() {
                                         <span className="text-[10px] text-forest-400 ml-auto">
                                           {rows.length} action{rows.length!==1?'s':''}
                                         </span>
+                                        {/* Archive entire gap */}
+                                        <button
+                                          title="Archive this entire gap and all its actions"
+                                          onClick={() => {
+                                            const firstRow = rows[0]
+                                            if (firstRow) handleArchiveGap(firstRow.assessment_id, gap)
+                                          }}
+                                          disabled={archiving === `gap::${rows[0]?.assessment_id}::${gap}`}
+                                          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium opacity-40 hover:opacity-100 transition-all ml-1"
+                                          style={{ color:'#d97706', border:'1px solid #fde68a', background:'#fffbeb' }}>
+                                          {archiving === `gap::${rows[0]?.assessment_id}::${gap}`
+                                            ? <Loader2 size={9} className="animate-spin"/>
+                                            : <Archive size={9}/>}
+                                          Archive gap
+                                        </button>
                                       </div>
                                       {/* Actions */}
                                       <table className="rt w-full" style={{ fontSize:11 }}>
@@ -861,6 +1087,18 @@ export default function AdminReportsPage() {
                                               <td className="font-mono">{r.budget_usd||'—'}</td>
                                               <td className="text-forest-400">{r.indicator||'—'}</td>
                                               <td className="text-forest-400">{r.collaboration||'—'}</td>
+                                              <td style={{ width:32 }}>
+                                                <button
+                                                  title="Archive this row"
+                                                  onClick={() => handleArchive(r)}
+                                                  disabled={archiving === (r as any).id}
+                                                  className="w-6 h-6 flex items-center justify-center rounded opacity-30 hover:opacity-100 hover:bg-amber-50 transition-all"
+                                                  style={{ color:'#d97706' }}>
+                                                  {archiving === (r as any).id
+                                                    ? <Loader2 size={11} className="animate-spin"/>
+                                                    : <Archive size={11}/>}
+                                                </button>
+                                              </td>
                                             </tr>
                                           ))}
                                         </tbody>
@@ -919,6 +1157,20 @@ export default function AdminReportsPage() {
                               <div className="flex items-center gap-2 px-4 py-2.5" style={{ background:'#eff6ff' }}>
                                 <Building2 size={12} style={{ color:'#3b82f6' }}/>
                                 <span className="text-[12.5px] font-bold text-blue-800">{name}</span>
+                                <span className="text-[10px] text-blue-400 ml-auto">{rows.length} action{rows.length!==1?'s':''}</span>
+                                {/* Archive all actions for this institution+target */}
+                                <button
+                                  title="Archive all actions from this institution for this target"
+                                  onClick={() => {
+                                    const firstRow = rows[0]
+                                    if (firstRow) handleArchiveGap(firstRow.assessment_id, firstRow.capacity_gap ?? '')
+                                  }}
+                                  disabled={rows.length === 0}
+                                  className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium opacity-40 hover:opacity-100 transition-all ml-2"
+                                  style={{ color:'#d97706', border:'1px solid #fde68a', background:'#fffbeb' }}>
+                                  <Archive size={9}/>
+                                  Archive gap
+                                </button>
                               </div>
                               <div className="px-4 py-3">
                                 <table className="rt w-full" style={{ fontSize:11 }}>
@@ -944,6 +1196,18 @@ export default function AdminReportsPage() {
                                         <td>{r.timeline ? <span className="chip text-[10px]" style={{ background:'#dbeafe', color:'#1d4ed8', whiteSpace:'nowrap' }}>{r.timeline}</span> : '—'}</td>
                                         <td className="font-mono">{r.budget_usd||'—'}</td>
                                         <td className="text-forest-400">{r.indicator||'—'}</td>
+                                        <td style={{ width:32 }}>
+                                          <button
+                                            title="Archive this row"
+                                            onClick={() => handleArchive(r)}
+                                            disabled={archiving === (r as any).id}
+                                            className="w-6 h-6 flex items-center justify-center rounded opacity-30 hover:opacity-100 hover:bg-amber-50 transition-all"
+                                            style={{ color:'#d97706' }}>
+                                            {archiving === (r as any).id
+                                              ? <Loader2 size={11} className="animate-spin"/>
+                                              : <Archive size={11}/>}
+                                          </button>
+                                        </td>
                                       </tr>
                                     ))}
                                   </tbody>

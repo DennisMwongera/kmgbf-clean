@@ -267,6 +267,9 @@ export async function loadInstitutionAssessmentDetail(
 
 // ─── Load all CDP rows across all institutions ────────────────
 export interface NationalCdpRow {
+  id:                string | null     // cdp_rows primary key (may be null if RLS blocks it)
+  assessment_id:     string            // needed for gap-level archive
+  sort_order:        number            // composite key fallback for archive/restore
   institution_name:  string
   institution_id:    string
   capacity_gap:      string | null
@@ -281,6 +284,8 @@ export interface NationalCdpRow {
   target_num:        number | null    // set when source = 'target'
   target_title:      string | null    // KMGBF target title
   dimension:         string | null    // dimension for core gaps
+  archived:          boolean           // soft-deleted rows hidden from report
+  archived_at:       string | null
 }
 
 export async function loadNationalCdpRows(
@@ -314,6 +319,7 @@ export async function loadNationalCdpRows(
     supabase.from('cdp_rows')
       .select('*')
       .in('assessment_id', assessIds)
+      .eq('archived', false)
       .order('assessment_id').order('sort_order'),
     supabase.from('institutions').select('id, name').in('id', instIds),
   ])
@@ -498,6 +504,9 @@ export async function loadNationalCdpRows(
       const tNum = tNumFromPrefix ?? (r.target_num && r.target_num > 0 ? r.target_num : null)
 
       return {
+        id:                r.id ?? null,
+        assessment_id:     r.assessment_id,
+        sort_order:        r.sort_order ?? 0,
         institution_name:  instMap.get(instInfo?.instId ?? '') ?? 'Unknown',
         institution_id:    instInfo?.instId ?? '',
         capacity_gap:      r.capacity_gap,
@@ -512,8 +521,165 @@ export async function loadNationalCdpRows(
         target_num:        tNum,
         target_title:      tNum ? targetTitleMap.get(tNum) ?? null : null,
         dimension:         isTarget ? null : resolveDimension(r),
+        archived:          r.archived ?? false,
+        archived_at:       r.archived_at ?? null,
       }
     })
 
   return cdpResults
+}
+
+// ─── Archive a CDP row (soft delete) ─────────────────────────
+export async function archiveCdpRow(rowId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('cdp_rows')
+    .update({
+      archived:    true,
+      archived_at: new Date().toISOString(),
+    })
+    .eq('id', rowId)
+  return !error
+}
+
+// ─── Restore an archived CDP row ──────────────────────────────
+export async function restoreCdpRow(rowId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('cdp_rows')
+    .update({
+      archived:    false,
+      archived_at: null,
+    })
+    .eq('id', rowId)
+  return !error
+}
+
+// ─── Load archived CDP rows for a review/restore panel ────────
+export async function loadArchivedCdpRows(
+  institutionIds?: string[]
+): Promise<NationalCdpRow[]> {
+  let query = supabase
+    .from('assessments')
+    .select('id, institution_id, status')
+    .order('updated_at', { ascending: false })
+  if (institutionIds?.length) query = query.in('institution_id', institutionIds)
+
+  const { data: assessments } = await query
+  if (!assessments?.length) return []
+
+  const latestByInst = new Map<string, { id: string; status: string }>()
+  assessments.forEach(a => {
+    if (!latestByInst.has(a.institution_id))
+      latestByInst.set(a.institution_id, { id: a.id, status: a.status })
+  })
+
+  const assessIds = [...latestByInst.values()].map(a => a.id)
+  const instIds   = [...latestByInst.keys()]
+
+  const [{ data: cdpRows }, { data: institutions }] = await Promise.all([
+    supabase.from('cdp_rows')
+      .select('*')
+      .in('assessment_id', assessIds)
+      .eq('archived', true)
+      .order('archived_at', { ascending: false }),
+    supabase.from('institutions').select('id, name').in('id', instIds),
+  ])
+
+  const instMap      = new Map(institutions?.map(i => [i.id, i.name]) ?? [])
+  const assessToInst = new Map<string, { instId: string; status: string }>()
+  latestByInst.forEach(({ id, status }, instId) => assessToInst.set(id, { instId, status }))
+  const targetTitleMap = new Map(KMGBF_TARGETS.map(t => [t.num, t.title]))
+
+  return (cdpRows ?? []).map(r => {
+    const instInfo = assessToInst.get(r.assessment_id)
+    const isTarget = r.source === 'target' || /^T\d+:/.test(r.capacity_gap ?? '')
+    const tNum     = parseInt((r.capacity_gap ?? '').match(/^T(\d+):/)?.[1] ?? '0') || r.target_num || null
+    return {
+      id:                r.id ?? null,
+      assessment_id:     r.assessment_id,
+      sort_order:        r.sort_order ?? 0,
+      institution_name:  instMap.get(instInfo?.instId ?? '') ?? 'Unknown',
+      institution_id:    instInfo?.instId ?? '',
+      capacity_gap:      r.capacity_gap,
+      action:            r.action ?? '',
+      institution:       r.institution,
+      timeline:          r.timeline,
+      budget_usd:        r.budget_usd,
+      indicator:         r.indicator,
+      collaboration:     r.collaboration,
+      assessment_status: instInfo?.status ?? null,
+      source:            isTarget ? 'target' : 'core',
+      target_num:        tNum,
+      target_title:      tNum ? targetTitleMap.get(tNum) ?? null : null,
+      dimension:         r.dimension ?? null,
+      archived:          true,
+      archived_at:       r.archived_at ?? null,
+    }
+  })
+}
+
+// ─── Archive all rows for a specific gap (institution + gap text) ─────────────
+export async function archiveGapRows(
+  assessmentId: string,
+  capacityGap: string
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('cdp_rows')
+    .update({
+      archived:    true,
+      archived_at: new Date().toISOString(),
+    })
+    .eq('assessment_id', assessmentId)
+    .eq('capacity_gap', capacityGap)
+  return !error
+}
+
+// ─── Restore all rows for a specific gap ─────────────────────────────────────
+export async function restoreGapRows(
+  assessmentId: string,
+  capacityGap: string
+): Promise<boolean> {
+  // Only restore archived rows — don't touch active rows
+  // Use ilike for whitespace-tolerant matching
+  const { error } = await supabase
+    .from('cdp_rows')
+    .update({
+      archived:    false,
+      archived_at: null,
+    })
+    .eq('assessment_id', assessmentId)
+    .eq('archived', true)
+    .eq('capacity_gap', capacityGap)
+  return !error
+}
+
+// ─── Archive by composite key (assessment_id + capacity_gap + sort_order) ────
+// Used as fallback when row id is not available due to RLS
+export async function archiveCdpRowByKey(
+  assessmentId: string,
+  capacityGap: string,
+  sortOrder: number
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('cdp_rows')
+    .update({ archived: true, archived_at: new Date().toISOString() })
+    .eq('assessment_id', assessmentId)
+    .eq('capacity_gap', capacityGap)
+    .eq('sort_order', sortOrder)
+    .eq('archived', false)
+  return !error
+}
+
+export async function restoreCdpRowByKey(
+  assessmentId: string,
+  capacityGap: string,
+  sortOrder: number
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('cdp_rows')
+    .update({ archived: false, archived_at: null })
+    .eq('assessment_id', assessmentId)
+    .eq('capacity_gap', capacityGap)
+    .eq('sort_order', sortOrder)
+    .eq('archived', true)
+  return !error
 }
