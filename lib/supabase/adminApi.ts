@@ -29,12 +29,14 @@ export interface NationalReport {
 }
 
 // ─── Load all institutions with their latest assessment data ──
-export async function loadAllInstitutionReports(): Promise<InstitutionReport[]> {
-  // 1. Get all institutions
-  const { data: institutions } = await supabase
+export async function loadAllInstitutionReports(countryId?: string): Promise<InstitutionReport[]> {
+  // 1. Get all institutions (optionally scoped by country)
+  let instQuery = supabase
     .from('institutions')
     .select('id, name, type, level')
     .order('name')
+  if (countryId) instQuery = instQuery.eq('country_id', countryId)
+  const { data: institutions } = await instQuery
 
   if (!institutions?.length) return []
 
