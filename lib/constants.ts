@@ -46,7 +46,7 @@ export interface Assessment {
 
 export interface UserProfile {
   id: string; full_name: string | null; email: string | null
-  role: 'admin' | 'country_admin' | 'institution_lead' | 'contributor' | 'viewer'
+  role: 'super_admin' | 'admin' | 'country_admin' | 'institution_lead' | 'contributor' | 'viewer'
   institution_id: string | null
   country_id: string | null
 }

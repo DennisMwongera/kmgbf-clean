@@ -1,267 +1,468 @@
 'use client'
-import { useEffect, useState, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase/client'
 
-type Mode = 'login' | 'register' | 'reset'
+// ─── Types ────────────────────────────────────────────────────
+interface Country { id: string; name: string; code: string; region: string | null }
+interface Institution { id: string; name: string; type: string | null; level: string | null }
 
-const ROLES = [
-  { value:'contributor',      label:'Contributor',      desc:'Fills in assessment data' },
-  { value:'institution_lead', label:'Institution Lead', desc:'Manages institution settings' },
-  { value:'viewer',           label:'Viewer',           desc:'Read-only access to reports' },
-]
+type AuthMode = 'signin' | 'register' | 'forgot'
+type RegisterStep = 'credentials' | 'location' | 'confirm'
 
-interface Institution { id: string; name: string; type: string|null; level: string|null }
-
-// Isolated component so useSearchParams is inside a Suspense boundary
-function IdleBanner() {
-  const searchParams = useSearchParams()
-  if (searchParams.get('reason') !== 'idle') return null
+// ─── Step indicator ───────────────────────────────────────────
+function StepIndicator({ step }: { step: RegisterStep }) {
+  const steps = [
+    { id: 'credentials', label: 'Account' },
+    { id: 'location',    label: 'Organisation' },
+    { id: 'confirm',     label: 'Confirm' },
+  ]
+  const idx = steps.findIndex(s => s.id === step)
   return (
-    <div style={{
-      position:'fixed', top:16, left:'50%', transform:'translateX(-50%)',
-      background:'#fef3c7', border:'1px solid #fcd34d', borderRadius:10,
-      padding:'12px 20px', fontSize:13, color:'#92400e', zIndex:100,
-      boxShadow:'0 4px 12px rgba(0,0,0,.1)', whiteSpace:'nowrap',
-    }}>
-      ⏱ Your session expired due to inactivity. Please sign in again.
+    <div className="flex items-center gap-0 mb-8">
+      {steps.map((s, i) => (
+        <div key={s.id} className="flex items-center">
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold transition-all"
+              style={{
+                background: i < idx ? '#52b788' : i === idx ? '#1b4332' : '#e8e3da',
+                color: i <= idx ? 'white' : '#9ca3af',
+              }}>
+              {i < idx ? '✓' : i + 1}
+            </div>
+            <span className="text-[10px] font-medium" style={{ color: i === idx ? '#1b4332' : '#9ca3af' }}>
+              {s.label}
+            </span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className="w-16 h-0.5 mb-4 mx-1 transition-all"
+              style={{ background: i < idx ? '#52b788' : '#e8e3da' }}/>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
 
+// ─── Main auth page ───────────────────────────────────────────
 export default function AuthPage() {
-  const [mode,         setMode]         = useState<Mode>('login')
-  const [email,        setEmail]        = useState('')
-  const [password,     setPassword]     = useState('')
-  const [name,         setName]         = useState('')
-  const [role,         setRole]         = useState('contributor')
-  const [instId,       setInstId]       = useState('')
-  const [institutions, setInstitutions] = useState<Institution[]>([])
-  const [error,        setError]        = useState('')
-  const [info,         setInfo]         = useState('')
-  const [loading,      setLoading]      = useState(false)
-  const [instsLoading, setInstsLoading] = useState(false)
+  const [mode,        setMode]        = useState<AuthMode>('signin')
+  const [step,        setStep]        = useState<RegisterStep>('credentials')
+  const [loading,     setLoading]     = useState(false)
+  const [error,       setError]       = useState('')
+  const [success,     setSuccess]     = useState('')
 
+  // Credentials
+  const [email,       setEmail]       = useState('')
+  const [password,    setPassword]    = useState('')
+  const [fullName,    setFullName]    = useState('')
+
+  // Location
+  const [countries,     setCountries]     = useState<Country[]>([])
+  const [institutions,  setInstitutions]  = useState<Institution[]>([])
+  const [countryId,     setCountryId]     = useState('')
+  const [institutionId, setInstitutionId] = useState('')
+  const [newInstName,   setNewInstName]   = useState('')
+  const [addingNew,     setAddingNew]     = useState(false)
+  const [loadingInsts,  setLoadingInsts]  = useState(false)
+
+  // Load countries on mount
   useEffect(() => {
-    if (mode !== 'register') return
-    setInstsLoading(true)
-    supabase.from('institutions').select('id, name, type, level').order('name')
-      .then(({ data }) => { setInstitutions(data ?? []); setInstsLoading(false) })
-  }, [mode])
+    supabase.from('countries')
+      .select('id, name, code, region')
+      .eq('status', 'active')
+      .order('name')
+      .then(({ data }) => setCountries(data ?? []))
+  }, [])
 
-  async function submit(e: React.FormEvent) {
+  // Load institutions when country changes
+  useEffect(() => {
+    if (!countryId) { setInstitutions([]); setInstitutionId(''); return }
+    setLoadingInsts(true)
+    setInstitutionId('')
+    supabase.rpc('get_institutions_by_country', { p_country_id: countryId })
+      .then(({ data }) => {
+        setInstitutions(data ?? [])
+        setLoadingInsts(false)
+      })
+  }, [countryId])
+
+  // ── Sign in ──────────────────────────────────────────────────
+  async function handleSignIn(e: React.FormEvent) {
     e.preventDefault()
-    setError(''); setInfo(''); setLoading(true)
+    setError(''); setLoading(true)
+    const { error, data } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) { setError(error.message); setLoading(false); return }
+    // Check account status
+    const { data: profile } = await supabase
+      .from('user_profiles').select('status, role').eq('id', data.user.id).single()
+    if (profile?.status === 'pending') {
+      await supabase.auth.signOut()
+      setError('Your account is pending activation. A country admin will activate it shortly.')
+      setLoading(false); return
+    }
+    if (profile?.status === 'suspended') {
+      await supabase.auth.signOut()
+      setError('Your account has been suspended. Contact your country admin.')
+      setLoading(false); return
+    }
+    window.location.href = '/dashboard'
+  }
+
+  // ── Register step 1 → 2 ─────────────────────────────────────
+  function handleCredentialsNext(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (!fullName.trim()) { setError('Please enter your full name'); return }
+    if (!email.trim())    { setError('Please enter your email'); return }
+    if (password.length < 8) { setError('Password must be at least 8 characters'); return }
+    setStep('location')
+  }
+
+  // ── Register step 2 → 3 ─────────────────────────────────────
+  function handleLocationNext(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (!countryId) { setError('Please select your country'); return }
+    if (!institutionId && !newInstName.trim()) {
+      setError('Please select your organisation or enter a new one'); return
+    }
+    setStep('confirm')
+  }
+
+  // ── Final register ───────────────────────────────────────────
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault()
+    setError(''); setLoading(true)
+
     try {
-      if (mode === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) throw error
-        window.location.href = '/dashboard'
+      // 1. Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: fullName } }
+      })
+      if (authError) throw authError
+      if (!authData.user) throw new Error('User creation failed')
 
-      } else if (mode === 'register') {
-        const { data, error } = await supabase.auth.signUp({
-          email, password,
-          options: { data: { full_name: name.trim(), institution_id: instId || null } },
-        })
-        if (error) throw error
-        if (data.user && instId) {
-          await supabase.from('user_profiles').update({ institution_id: instId }).eq('id', data.user.id)
-        }
-        if (data.session) {
-          window.location.href = '/dashboard'
-        } else {
-          setInfo('Account created! Check your email to confirm, then sign in.')
-        }
+      const userId = authData.user.id
+      let finalInstId = institutionId
 
-      } else {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/auth/reset`,
-        })
-        if (error) throw error
-        setInfo('Reset link sent — check your inbox.')
+      // 2. Create new institution if needed (via validated RPC)
+      if (addingNew && newInstName.trim()) {
+        const { data: newInstId, error: instError } = await supabase
+          .rpc('create_institution_for_country', {
+            p_name:       newInstName.trim(),
+            p_country_id: countryId,
+          })
+        if (instError) throw instError
+        finalInstId = newInstId
       }
+
+      // 3. Update user profile with country + institution
+      const { error: profileError } = await supabase
+        .from('user_profiles')
+        .update({
+          full_name:      fullName,
+          country_id:     countryId,
+          institution_id: finalInstId || null,
+          role:           'contributor',
+          status:         'pending',
+        })
+        .eq('id', userId)
+
+      if (profileError) throw profileError
+
+      setSuccess('Account created! Check your email to confirm your address. A country admin will then activate your account before you can sign in.')
+      setMode('signin')
     } catch (err: any) {
-      const m: string = err?.message ?? 'An error occurred'
-      if (m.includes('Invalid login credentials'))    setError('Incorrect email or password.')
-      else if (m.includes('User already registered')) setError('Email already registered. Sign in instead.')
-      else if (m.includes('Email not confirmed'))     setError('Confirm your email first, then sign in.')
-      else if (m.includes('Database error'))          setError('Account setup failed. Try again or contact your admin.')
-      else setError(m)
+      setError(err.message ?? 'Registration failed')
     } finally {
       setLoading(false)
     }
   }
 
-  function sw(m: Mode) { setMode(m); setError(''); setInfo('') }
+  // ── Forgot password ──────────────────────────────────────────
+  async function handleForgot(e: React.FormEvent) {
+    e.preventDefault()
+    setError(''); setLoading(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/reset`,
+    })
+    if (error) { setError(error.message) }
+    else { setSuccess('Password reset email sent. Check your inbox.') }
+    setLoading(false)
+  }
+
+  const selectedCountry = countries.find(c => c.id === countryId)
+  const selectedInst    = institutions.find(i => i.id === institutionId)
 
   return (
-    <div className="min-h-screen flex" style={{ background:'#f6f3ee' }}>
+    <div className="min-h-screen flex items-center justify-center p-4"
+      style={{ background: 'linear-gradient(135deg, #0f2d1c 0%, #1b4332 50%, #2d6a4f 100%)' }}>
 
-      {/* Idle timeout toast — Suspense required for useSearchParams */}
-      <Suspense fallback={null}>
-        <IdleBanner/>
-      </Suspense>
+      {/* Background pattern */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div style={{ position:'absolute', top:'-20%', right:'-10%', width:600, height:600, borderRadius:'50%', background:'rgba(82,183,136,.06)', filter:'blur(80px)' }}/>
+        <div style={{ position:'absolute', bottom:'-10%', left:'-5%', width:400, height:400, borderRadius:'50%', background:'rgba(64,145,108,.08)', filter:'blur(60px)' }}/>
+      </div>
 
-      {/* Left panel */}
-      <div className="hidden lg:flex flex-col justify-between w-[400px] shrink-0 p-10" style={{ background:'#0f2d1c' }}>
-        <div>
-          <div className="inline-block mb-3 px-2 py-0.5 rounded text-[9px] font-bold tracking-[2px] uppercase"
-            style={{ background:'rgba(82,183,136,.2)', color:'#95d5b2', border:'1px solid rgba(82,183,136,.3)' }}>
-            CBD · KMGBF · 2030
+      <div className="relative w-full max-w-md">
+        {/* Brand */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 rounded-full"
+            style={{ background:'rgba(82,183,136,.15)', border:'1px solid rgba(82,183,136,.25)' }}>
+            <div className="w-2 h-2 rounded-full" style={{ background:'#52b788' }}/>
+            <span className="text-[11px] font-bold tracking-[2px] uppercase" style={{ color:'#95d5b2' }}>
+              CBD · KMGBF · 2030
+            </span>
           </div>
-          <h1 style={{ fontFamily:'var(--font-display)', fontSize:32, fontWeight:700, color:'white', lineHeight:1.2, marginBottom:12 }}>
-            Capacity Needs Assessment Tool
+          <h1 className="text-white text-[28px] font-bold leading-tight mb-1"
+            style={{ fontFamily:'var(--font-display)' }}>
+            Capacity Needs<br/>Assessment Tool
           </h1>
-          <p style={{ color:'rgba(149,213,178,.7)', fontSize:13.5, lineHeight:1.7 }}>
-            Assess, track and report institutional capacity for implementing the
-            Kunming-Montreal Global Biodiversity Framework targets.
+          <p className="text-[13px]" style={{ color:'rgba(149,213,178,.6)' }}>
+            Kunming-Montreal Global Biodiversity Framework
           </p>
         </div>
-        <div>
-          {[
-            '50 core indicators across 8 dimensions',
-            'All 23 KMGBF targets',
-            'Live dashboards and radar charts',
-            'Export to XLSX, PDF, JSON, CSV',
-            'Multi-institution with role-based access',
-          ].map(l => (
-            <div key={l} className="flex items-center gap-3 mb-3 text-[13px]" style={{ color:'rgba(255,255,255,.6)' }}>
-              <span style={{ color:'#52b788' }}>✓</span>{l}
+
+        {/* Card */}
+        <div className="rounded-2xl p-8" style={{ background:'white', boxShadow:'0 32px 64px rgba(0,0,0,.3)' }}>
+
+          {/* Success message */}
+          {success && (
+            <div className="mb-5 px-4 py-3 rounded-xl text-[13px] font-medium"
+              style={{ background:'#d8f3dc', color:'#1b4332' }}>
+              ✅ {success}
             </div>
-          ))}
-          <p className="mt-6 text-[10px]" style={{ color:'rgba(255,255,255,.2)' }}>
-            Convention on Biological Diversity · © 2026 KMGBF CNA Tool
-          </p>
-        </div>
-      </div>
+          )}
 
-      {/* Right form */}
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-[440px]">
-          <div className="bg-white rounded-2xl p-8 border border-sand-300" style={{ boxShadow:'0 4px 24px rgba(15,45,28,.1)' }}>
+          {/* Error message */}
+          {error && (
+            <div className="mb-5 px-4 py-3 rounded-xl text-[13px] font-medium"
+              style={{ background:'#fee2e2', color:'#dc2626' }}>
+              {error}
+            </div>
+          )}
 
-            <h2 style={{ fontFamily:'var(--font-display)', fontSize:26, fontWeight:700, color:'#0f2d1c', marginBottom:4 }}>
-              {mode === 'login' ? 'Sign in' : mode === 'register' ? 'Create account' : 'Reset password'}
-            </h2>
-            <p className="text-[13px] text-forest-400 mb-5">
-              {mode === 'login'    ? 'Access your KMGBF CNA workspace.'
-               : mode === 'register' ? 'Create your account to begin an assessment.'
-               : 'Enter your email to receive a reset link.'}
-            </p>
-
-            {error && (
-              <div className="mb-4 p-3.5 rounded-xl text-[13px] flex gap-2" style={{ background:'#fee2e2', color:'#dc2626' }}>
-                <span>⚠️</span><span>{error}</span>
-              </div>
-            )}
-            {info && (
-              <div className="mb-4 p-3.5 rounded-xl text-[13px] flex gap-2" style={{ background:'#dcfce7', color:'#15803d' }}>
-                <span>✅</span><span>{info}</span>
-              </div>
-            )}
-
-            <form onSubmit={submit} className="space-y-4">
-
-              {mode === 'register' && (
-                <>
-                  <div>
-                    <label className="block text-[11px] font-bold text-forest-400 uppercase tracking-wide mb-1.5">Full Name *</label>
-                    <input className="form-input" type="text" value={name} onChange={e => setName(e.target.value)}
-                      placeholder="Your full name" required autoComplete="name"/>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-forest-400 uppercase tracking-wide mb-1.5">Institution</label>
-                    {instsLoading ? (
-                      <div className="form-input text-[13px] text-forest-400">Loading institutions…</div>
-                    ) : institutions.length === 0 ? (
-                      <div className="p-3 rounded-xl text-[12.5px] text-forest-400" style={{ background:'#f6f3ee', border:'1px solid #e8e3da' }}>
-                        No institutions available yet. An admin will link you after signup.
-                      </div>
-                    ) : (
-                      <select className="form-input" value={instId} onChange={e => setInstId(e.target.value)}>
-                        <option value="">— Select your institution —</option>
-                        {institutions.map(i => (
-                          <option key={i.id} value={i.id}>
-                            {i.name}{i.level ? ` (${i.level})` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <p className="text-[11px] text-forest-400 mt-1">If your institution isn't listed, an admin will assign you.</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-forest-400 uppercase tracking-wide mb-1.5">I will be a…</label>
-                    <div className="flex flex-col gap-2">
-                      {ROLES.map(r => (
-                        <label key={r.value}
-                          className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all"
-                          style={{ borderColor:role===r.value?'#2d6a4f':'#e8e3da', background:role===r.value?'#f0faf4':'white' }}>
-                          <input type="radio" name="role" value={r.value} checked={role===r.value}
-                            onChange={() => setRole(r.value)} className="mt-0.5"/>
-                          <div>
-                            <div className="text-[13px] font-semibold text-forest-700">{r.label}</div>
-                            <div className="text-[11.5px] text-forest-400">{r.desc}</div>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                    <p className="text-[11px] text-forest-400 mt-2">ℹ️ All accounts start as Contributor. Admin assigns final roles.</p>
-                  </div>
-                </>
-              )}
-
-              <div>
-                <label className="block text-[11px] font-bold text-forest-400 uppercase tracking-wide mb-1.5">Email *</label>
-                <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="you@institution.org" required autoComplete="email"/>
-              </div>
-
-              {mode !== 'reset' && (
+          {/* ── SIGN IN ── */}
+          {mode === 'signin' && (
+            <>
+              <h2 className="text-[22px] font-bold mb-6" style={{ fontFamily:'var(--font-display)', color:'#0f2d1c' }}>
+                Welcome back
+              </h2>
+              <form onSubmit={handleSignIn} className="space-y-4">
                 <div>
-                  <label className="block text-[11px] font-bold text-forest-400 uppercase tracking-wide mb-1.5">Password *</label>
-                  <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)}
-                    placeholder="Min 8 characters" required minLength={8}
-                    autoComplete={mode==='login'?'current-password':'new-password'}/>
+                  <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Email</label>
+                  <input className="ti w-full" type="email" placeholder="you@example.com"
+                    value={email} onChange={e => setEmail(e.target.value)} required/>
                 </div>
-              )}
-
-              <button type="submit" disabled={loading}
-                className="btn btn-primary w-full justify-center py-3 text-[14px] mt-1"
-                style={{ opacity:loading?0.7:1 }}>
-                {loading
-                  ? <span className="flex items-center gap-2 justify-center">
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
-                      Please wait…
-                    </span>
-                  : mode==='login' ? 'Sign In' : mode==='register' ? 'Create Account' : 'Send Reset Link'}
-              </button>
-
-            </form>
-
-            <div className="mt-5 pt-5 border-t border-sand-300 text-center space-y-2 text-[12.5px]">
-              {mode === 'login' && (
-                <>
-                  <button onClick={() => sw('register')} className="block w-full text-forest-500 hover:text-forest-700 font-medium">
-                    Don't have an account? Register
-                  </button>
-                  <button onClick={() => sw('reset')} className="block w-full text-forest-400 hover:text-forest-600">
-                    Forgot password?
-                  </button>
-                </>
-              )}
-              {mode !== 'login' && (
-                <button onClick={() => sw('login')} className="text-forest-500 hover:text-forest-700 font-medium">
-                  ← Back to sign in
+                <div>
+                  <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Password</label>
+                  <input className="ti w-full" type="password" placeholder="••••••••"
+                    value={password} onChange={e => setPassword(e.target.value)} required/>
+                </div>
+                <button type="submit" disabled={loading}
+                  className="w-full py-3 rounded-xl text-[13.5px] font-bold text-white transition-all"
+                  style={{ background: loading ? '#9ca3af' : '#1b4332' }}>
+                  {loading ? 'Signing in…' : 'Sign In'}
                 </button>
+              </form>
+              <div className="mt-5 flex items-center justify-between text-[12.5px]">
+                <button onClick={() => { setMode('forgot'); setError(''); setSuccess('') }}
+                  className="text-forest-400 hover:text-forest-600 transition-colors">
+                  Forgot password?
+                </button>
+                <button onClick={() => { setMode('register'); setStep('credentials'); setError(''); setSuccess('') }}
+                  className="font-semibold transition-colors" style={{ color:'#1b4332' }}>
+                  Create account →
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── REGISTER ── */}
+          {mode === 'register' && (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-[22px] font-bold" style={{ fontFamily:'var(--font-display)', color:'#0f2d1c' }}>
+                  Create account
+                </h2>
+                <button onClick={() => { setMode('signin'); setStep('credentials'); setError('') }}
+                  className="text-[12px] text-forest-400 hover:text-forest-600">
+                  ← Sign in
+                </button>
+              </div>
+
+              <StepIndicator step={step}/>
+
+              {/* Step 1: Credentials */}
+              {step === 'credentials' && (
+                <form onSubmit={handleCredentialsNext} className="space-y-4">
+                  <div>
+                    <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Full Name</label>
+                    <input className="ti w-full" type="text" placeholder="Dr. Jane Smith"
+                      value={fullName} onChange={e => setFullName(e.target.value)} required/>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Email</label>
+                    <input className="ti w-full" type="email" placeholder="you@example.com"
+                      value={email} onChange={e => setEmail(e.target.value)} required/>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Password</label>
+                    <input className="ti w-full" type="password" placeholder="Min. 8 characters"
+                      value={password} onChange={e => setPassword(e.target.value)} required minLength={8}/>
+                  </div>
+                  <button type="submit"
+                    className="w-full py-3 rounded-xl text-[13.5px] font-bold text-white transition-all"
+                    style={{ background:'#1b4332' }}>
+                    Next: Select Organisation →
+                  </button>
+                </form>
               )}
-            </div>
 
-          </div>
+              {/* Step 2: Country + Institution */}
+              {step === 'location' && (
+                <form onSubmit={handleLocationNext} className="space-y-4">
+                  {/* Country */}
+                  <div>
+                    <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Country</label>
+                    <select className="ti w-full" value={countryId}
+                      onChange={e => { setCountryId(e.target.value); setAddingNew(false); setNewInstName('') }}
+                      style={{ appearance:'none' }}>
+                      <option value="">Select your country…</option>
+                      {countries.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.code}){c.region ? ` — ${c.region}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Institution */}
+                  {countryId && (
+                    <div>
+                      <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">
+                        Organisation / Institution
+                      </label>
+                      {loadingInsts ? (
+                        <div className="ti w-full text-forest-300 text-[13px]">Loading institutions…</div>
+                      ) : (
+                        <>
+                          <select className="ti w-full" value={addingNew ? '__new__' : institutionId}
+                            onChange={e => {
+                              if (e.target.value === '__new__') { setAddingNew(true); setInstitutionId('') }
+                              else { setAddingNew(false); setInstitutionId(e.target.value) }
+                            }}
+                            style={{ appearance:'none' }}>
+                            <option value="">Select your institution…</option>
+                            {institutions.map(i => (
+                              <option key={i.id} value={i.id}>{i.name}</option>
+                            ))}
+                            <option value="__new__">➕ My institution is not listed</option>
+                          </select>
+
+                          {addingNew && (
+                            <div className="mt-2">
+                              <input className="ti w-full" type="text"
+                                placeholder="Enter your institution name"
+                                value={newInstName}
+                                onChange={e => setNewInstName(e.target.value)}/>
+                              <p className="text-[11px] text-forest-400 mt-1">
+                                A new institution will be created for your country.
+                              </p>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => setStep('credentials')}
+                      className="flex-1 py-3 rounded-xl text-[13px] font-semibold border transition-all"
+                      style={{ borderColor:'#e8e3da', color:'#5c7566' }}>
+                      ← Back
+                    </button>
+                    <button type="submit"
+                      className="flex-[2] py-3 rounded-xl text-[13.5px] font-bold text-white transition-all"
+                      style={{ background:'#1b4332' }}>
+                      Review & Confirm →
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Step 3: Confirm */}
+              {step === 'confirm' && (
+                <form onSubmit={handleRegister} className="space-y-4">
+                  <div className="rounded-xl p-4 space-y-3" style={{ background:'#f6f3ee' }}>
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-forest-400 mb-2">
+                      Review your details
+                    </div>
+                    {[
+                      ['Name',    fullName],
+                      ['Email',   email],
+                      ['Country', selectedCountry?.name ?? '—'],
+                      ['Organisation', addingNew ? `${newInstName} (new)` : selectedInst?.name ?? '—'],
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex items-start gap-3">
+                        <span className="text-[12px] text-forest-400 w-28 shrink-0">{label}</span>
+                        <span className="text-[12.5px] font-semibold text-forest-700">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11.5px] text-forest-400">
+                    Your account will be created as a <strong>Contributor</strong>. An admin can upgrade your role after sign-in.
+                  </p>
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => setStep('location')}
+                      className="flex-1 py-3 rounded-xl text-[13px] font-semibold border transition-all"
+                      style={{ borderColor:'#e8e3da', color:'#5c7566' }}>
+                      ← Back
+                    </button>
+                    <button type="submit" disabled={loading}
+                      className="flex-[2] py-3 rounded-xl text-[13.5px] font-bold text-white transition-all"
+                      style={{ background: loading ? '#9ca3af' : '#1b4332' }}>
+                      {loading ? 'Creating account…' : 'Create Account ✓'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
+          )}
+
+          {/* ── FORGOT PASSWORD ── */}
+          {mode === 'forgot' && (
+            <>
+              <h2 className="text-[22px] font-bold mb-2" style={{ fontFamily:'var(--font-display)', color:'#0f2d1c' }}>
+                Reset password
+              </h2>
+              <p className="text-[13px] text-forest-400 mb-6">
+                Enter your email and we'll send a reset link.
+              </p>
+              <form onSubmit={handleForgot} className="space-y-4">
+                <input className="ti w-full" type="email" placeholder="you@example.com"
+                  value={email} onChange={e => setEmail(e.target.value)} required/>
+                <button type="submit" disabled={loading}
+                  className="w-full py-3 rounded-xl text-[13.5px] font-bold text-white transition-all"
+                  style={{ background: loading ? '#9ca3af' : '#1b4332' }}>
+                  {loading ? 'Sending…' : 'Send Reset Link'}
+                </button>
+              </form>
+              <button onClick={() => { setMode('signin'); setError(''); setSuccess('') }}
+                className="mt-4 text-[12.5px] text-forest-400 hover:text-forest-600 transition-colors">
+                ← Back to sign in
+              </button>
+            </>
+          )}
         </div>
-      </div>
 
+        {/* Footer */}
+        <p className="text-center mt-6 text-[11px]" style={{ color:'rgba(149,213,178,.4)' }}>
+          Convention on Biological Diversity · KMGBF CNA Tool · 2025
+        </p>
+      </div>
     </div>
   )
 }

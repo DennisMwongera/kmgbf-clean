@@ -1,0 +1,117 @@
+'use client'
+import Link from 'next/link'
+import { useEffect } from 'react'
+import { usePathname } from 'next/navigation'
+import { supabase } from '@/lib/supabase/client'
+import { Globe, Building2, Users, BarChart2, ArrowLeft, LogOut, ShieldCheck } from 'lucide-react'
+
+const NAV = [
+  { href:'/super-admin',              Icon: BarChart2,  label:'Overview'      },
+  { href:'/super-admin/countries',    Icon: Globe,      label:'Countries'     },
+  { href:'/super-admin/institutions', Icon: Building2,  label:'Institutions'  },
+  { href:'/super-admin/users',        Icon: Users,      label:'All Users'     },
+]
+
+export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
+
+  useEffect(() => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) { window.location.href = '/auth'; return }
+      const { data: p } = await supabase
+        .from('user_profiles').select('role').eq('id', user.id).single()
+      if (p?.role !== 'super_admin') {
+        window.location.href = '/dashboard'
+      }
+    })
+  }, [])
+
+  async function signOut() {
+    await supabase.auth.signOut()
+    localStorage.removeItem('kmgbf-v2')
+    window.location.href = '/auth'
+  }
+
+  return (
+    <div className="flex min-h-screen" style={{ background:'#f6f3ee' }}>
+      <aside className="fixed top-0 left-0 bottom-0 flex flex-col z-40 overflow-hidden"
+        style={{ width:220, background:'#0f2d1c' }}>
+
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ background:'radial-gradient(ellipse at 20% 10%, rgba(64,145,108,.15) 0%, transparent 60%)' }}/>
+
+        {/* Brand */}
+        <div className="relative px-5 pt-6 pb-4 border-b border-white/[0.07]">
+          <div className="inline-block mb-1.5 px-2 py-0.5 rounded text-[9px] font-bold tracking-[2px] uppercase"
+            style={{ background:'rgba(139,92,246,.2)', color:'#c4b5fd', border:'1px solid rgba(139,92,246,.3)' }}>
+            Super Admin
+          </div>
+          <div className="text-white text-[15px] font-semibold" style={{ fontFamily:'var(--font-display)' }}>
+            KMGBF CNA
+          </div>
+          <div className="text-[10px] mt-0.5" style={{ color:'rgba(149,213,178,.5)' }}>
+            Global Management
+          </div>
+        </div>
+
+        {/* Nav */}
+        <nav className="relative flex-1 py-2">
+          {NAV.map(({ href, Icon, label }) => {
+            const active = href === '/super-admin'
+              ? pathname === '/super-admin'
+              : pathname.startsWith(href)
+            return (
+              <Link key={href} href={href}
+                className="flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium border-l-2 transition-all"
+                style={{
+                  color:           active ? 'white' : 'rgba(255,255,255,.55)',
+                  background:      active ? 'rgba(139,92,246,.12)' : 'transparent',
+                  borderLeftColor: active ? '#a78bfa' : 'transparent',
+                }}>
+                <Icon size={15} style={{ opacity: active ? 1 : 0.6 }}/>
+                {label}
+              </Link>
+            )
+          })}
+        </nav>
+
+        {/* Links */}
+        <div className="relative px-4 py-3 border-t border-white/[0.06] space-y-1.5">
+          <Link href="/country-admin"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium transition-colors"
+            style={{ background:'rgba(59,130,246,.1)', color:'#93c5fd' }}>
+            <Globe size={13}/> Country Admin View
+          </Link>
+          <Link href="/dashboard"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium transition-colors"
+            style={{ background:'rgba(82,183,136,.1)', color:'#52b788' }}>
+            <ArrowLeft size={13}/> Back to App
+          </Link>
+          <button onClick={signOut}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-semibold transition-colors"
+            style={{ background:'rgba(255,255,255,.05)', color:'rgba(255,255,255,.4)' }}>
+            <LogOut size={13}/> Sign out
+          </button>
+        </div>
+      </aside>
+
+      <div className="flex flex-col flex-1" style={{ marginLeft:220 }}>
+        <header className="sticky top-0 z-30 h-[58px] flex items-center justify-between px-8 border-b border-sand-300"
+          style={{ background:'rgba(246,243,238,.95)', backdropFilter:'blur(10px)' }}>
+          <div className="text-[13px] flex items-center gap-2">
+            <span className="text-forest-400">Super Admin</span>
+            <span className="text-sand-300">/</span>
+            <span className="font-semibold text-forest-600 capitalize">
+              {pathname.split('/').filter(Boolean).slice(1).join(' / ') || 'Overview'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-bold"
+            style={{ background:'rgba(139,92,246,.1)', color:'#7c3aed' }}>
+            <ShieldCheck size={12}/> Super Admin
+          </div>
+        </header>
+        <main className="flex-1 px-8 py-6">{children}</main>
+      </div>
+    </div>
+  )
+}

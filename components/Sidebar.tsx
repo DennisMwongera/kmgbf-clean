@@ -31,7 +31,9 @@ const NAV_CONFIG = (t: ReturnType<typeof getT>, isLead: boolean) => [
 ]
 
 const ROLE_STYLE: Record<string, { bg: string; color: string }> = {
+  super_admin:      { bg: 'rgba(139,92,246,.25)', color: '#c4b5fd' },
   admin:            { bg: 'rgba(220,38,38,.2)',   color: '#fca5a5' },
+  country_admin:    { bg: 'rgba(59,130,246,.2)',  color: '#93c5fd' },
   institution_lead: { bg: 'rgba(251,191,36,.2)',  color: '#fcd34d' },
   contributor:      { bg: 'rgba(82,183,136,.2)',  color: '#6ee7b7' },
   viewer:           { bg: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.5)' },
@@ -157,13 +159,22 @@ export default function Sidebar({ onExport }: Props) {
       </nav>
 
       {/* Admin panel link */}
-      {user?.role === 'admin' && (
-        <div className="relative px-4 pb-1 border-t border-white/[0.06] pt-2">
-          <a href="/admin"
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12px] font-semibold transition-colors"
-            style={{ background: 'rgba(220,38,38,.12)', color: '#fca5a5', border: '1px solid rgba(220,38,38,.2)' }}>
-            <ShieldCheck size={14}/> Admin Panel
-          </a>
+      {(user?.role === 'admin' || user?.role === 'country_admin' || user?.role === 'super_admin') && (
+        <div className="relative px-4 pb-1 border-t border-white/[0.06] pt-2 space-y-1.5">
+          {user?.role === 'super_admin' && (
+            <a href="/super-admin"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12px] font-semibold transition-colors"
+              style={{ background: 'rgba(139,92,246,.12)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,.2)' }}>
+              <ShieldCheck size={14}/> Super Admin
+            </a>
+          )}
+          {(user?.role === 'admin' || user?.role === 'country_admin') && (
+            <a href="/admin"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12px] font-semibold transition-colors"
+              style={{ background: 'rgba(220,38,38,.12)', color: '#fca5a5', border: '1px solid rgba(220,38,38,.2)' }}>
+              <ShieldCheck size={14}/> Admin Panel
+            </a>
+          )}
         </div>
       )}
 

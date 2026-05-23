@@ -1,61 +1,74 @@
-// import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
-// import { NextResponse, type NextRequest } from 'next/server'
-
-// export async function middleware(req: NextRequest) {
-//   // Build a mutable response — createMiddlewareClient writes the
-//   // refreshed session cookie onto this response before we return it
-//   const res = NextResponse.next()
-
-//   // This ONE line handles all cookie reading + writing automatically
-//   const supabase = createMiddlewareClient({ req, res })
-
-//   // Refresh session if expired — result is written back to the cookie
-//   const { data: { session } } = await supabase.auth.getSession()
-
-//   const path = req.nextUrl.pathname
-
-//   // Signed-out user hitting a protected route → go to /auth
-//   if (!session && path.startsWith('/dashboard')) {
-//     return NextResponse.redirect(new URL('/auth', req.url))
-//   }
-
-//   // Signed-in user hitting /auth → go to app
-//   if (session && path === '/auth') {
-//     return NextResponse.redirect(new URL('/dashboard', req.url))
-//   }
-
-//   // Always return res (not NextResponse.next()) so the cookie
-//   // written by createMiddlewareClient is actually sent to the browser
-//   return res
-// }
-
-// export const config = {
-//   // Only run on these two routes — nothing else needs middleware
-//   matcher: ['/dashboard/:path*', '/auth'],
-// }
-
 import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req, res })
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+  const response = NextResponse.next()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // Only run on protected admin routes
+  const isSuperAdmin   = pathname.startsWith('/super-admin')
+  const isCountryAdmin = pathname.startsWith('/country-admin')
+  const isAdmin        = pathname.startsWith('/admin')
 
-  const path = req.nextUrl.pathname
-
-  if (!user && path.startsWith('/dashboard')) {
-    return NextResponse.redirect(new URL('/auth', req.url))
+  if (!isSuperAdmin && !isCountryAdmin && !isAdmin) {
+    return response
   }
 
-  if (user && path === '/auth') {
-    return NextResponse.redirect(new URL('/dashboard', req.url))
+  // Build Supabase client using auth-helpers pattern
+  const supabase = createMiddlewareClient({ req: request, res: response })
+
+  // Refresh session if expired
+  const { data: { session } } = await supabase.auth.getSession()
+
+  // Not logged in → redirect to auth
+  if (!session) {
+    return NextResponse.redirect(new URL('/auth', request.url))
   }
 
-  return res
+  // Get user role and status
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, status')
+    .eq('id', session.user.id)
+    .single()
+
+  const role   = profile?.role   ?? ''
+  const status = profile?.status ?? 'active'
+
+  // Suspended users
+  if (status === 'suspended') {
+    const url = new URL('/auth', request.url)
+    url.searchParams.set('error', 'suspended')
+    return NextResponse.redirect(url)
+  }
+
+  // Pending users — not yet activated
+  if (status === 'pending') {
+    const url = new URL('/auth', request.url)
+    url.searchParams.set('error', 'pending')
+    return NextResponse.redirect(url)
+  }
+
+  // Route guards
+  if (isSuperAdmin && role !== 'super_admin') {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  if (isCountryAdmin && !['country_admin', 'super_admin'].includes(role)) {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  if (isAdmin && !['admin', 'country_admin', 'super_admin'].includes(role)) {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  return response
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/auth'],
+  matcher: [
+    '/super-admin/:path*',
+    '/country-admin/:path*',
+    '/admin/:path*',
+  ],
 }

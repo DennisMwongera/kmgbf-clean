@@ -57,6 +57,18 @@ export default function AppShell() {
 
       if (profile) setUser(profile as any)
 
+      // ── Role-based routing ────────────────────────────────
+      // super_admin and country_admin have their own dashboards
+      // They do not belong to institutions so the app shell is wrong for them
+      if (profile?.role === 'super_admin') {
+        window.location.href = '/super-admin'
+        return
+      }
+      if (profile?.role === 'country_admin') {
+        window.location.href = '/country-admin'
+        return
+      }
+
       // ── Institution isolation check ───────────────────────
       // Validate stored assessment belongs to this user's institution
       // If not (e.g. shared device, role change), wipe localStorage
