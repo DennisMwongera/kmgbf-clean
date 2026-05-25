@@ -16,9 +16,6 @@ function scoreColor(v: number | null) {
   if (v < 4) return '#16a34a'; return '#047857'
 }
 
-const INST_TYPES = ['Government Ministry','Regulatory Agency','Research Institute',
-  'NGO / Civil Society','International Organization','Private Sector',
-  'Academic Institution','Protected Area Authority','Local Government','Other']
 
 export default function CountryAdminInstitutionsPage() {
   const [institutions, setInstitutions] = useState<Institution[]>([])
@@ -32,6 +29,7 @@ export default function CountryAdminInstitutionsPage() {
   const [error,        setError]        = useState('')
 
   async function load(cid: string) {
+    try {
     const { data: insts } = await supabase
       .from('institutions')
       .select('id, name, type, level')
@@ -87,7 +85,11 @@ export default function CountryAdminInstitutionsPage() {
         user_count:     userMap[inst.id] ?? 0,
       }
     }))
-    setLoading(false)
+    } catch (err) {
+      console.error('Load error:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -248,7 +250,16 @@ export default function CountryAdminInstitutionsPage() {
                 <select className="ti w-full" value={form.type}
                   onChange={e => setForm(p => ({ ...p, type: e.target.value }))} style={{ appearance:'none' }}>
                   <option value="">Select type…</option>
-                  {INST_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  <option value="Government Ministry">Government Ministry</option>
+                  <option value="Regulatory Agency">Regulatory Agency</option>
+                  <option value="Research Institute">Research Institute</option>
+                  <option value="NGO / Civil Society">NGO / Civil Society</option>
+                  <option value="International Organization">International Organization</option>
+                  <option value="Private Sector">Private Sector</option>
+                  <option value="Academic Institution">Academic Institution</option>
+                  <option value="Protected Area Authority">Protected Area Authority</option>
+                  <option value="Local Government">Local Government</option>
+                  <option value="Other">Other</option>
                 </select>
               </div>
               <div>
@@ -256,7 +267,10 @@ export default function CountryAdminInstitutionsPage() {
                 <select className="ti w-full" value={form.level}
                   onChange={e => setForm(p => ({ ...p, level: e.target.value }))} style={{ appearance:'none' }}>
                   <option value="">Select level…</option>
-                  {['National','Regional','Local','International'].map(l => <option key={l} value={l}>{l}</option>)}
+                  <option value="National">National</option>
+                  <option value="Regional">Regional</option>
+                  <option value="Local">Local</option>
+                  <option value="International">International</option>
                 </select>
               </div>
               <div className="flex gap-3 pt-1">
