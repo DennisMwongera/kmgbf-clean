@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 
@@ -45,7 +45,7 @@ function StepIndicator({ step }: { step: RegisterStep }) {
 }
 
 // ─── Main auth page ───────────────────────────────────────────
-export default function AuthPage() {
+function AuthPageInner() {
   const [mode,        setMode]        = useState<AuthMode>('signin')
   const [step,        setStep]        = useState<RegisterStep>('credentials')
   const [loading,     setLoading]     = useState(false)
@@ -474,5 +474,13 @@ export default function AuthPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={null}>
+      <AuthPageInner />
+    </Suspense>
   )
 }
