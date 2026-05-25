@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -50,6 +51,15 @@ export default function AuthPage() {
   const [loading,     setLoading]     = useState(false)
   const [error,       setError]       = useState('')
   const [success,     setSuccess]     = useState('')
+
+  const searchParams = useSearchParams()
+
+  // Show middleware redirect errors on mount
+  useEffect(() => {
+    const err = searchParams.get('error')
+    if (err === 'pending')   setError('Your account is pending activation by a country admin.')
+    if (err === 'suspended') setError('Your account has been suspended. Contact your country admin.')
+  }, [])
 
   // Credentials
   const [email,       setEmail]       = useState('')

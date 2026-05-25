@@ -68,6 +68,10 @@ export default function AppShell() {
         window.location.href = '/country-admin'
         return
       }
+      if (profile?.role === 'admin') {
+        window.location.href = '/country-admin'
+        return
+      }
 
       // ── Institution isolation check ───────────────────────
       // Validate stored assessment belongs to this user's institution
