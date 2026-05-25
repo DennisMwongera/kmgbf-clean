@@ -17,8 +17,10 @@ interface Country { id: string; name: string; code: string }
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
   const pathname  = usePathname()
   const [countries,       setCountries]       = useState<Country[]>([])
+  const [allCountries,    setAllCountries]    = useState<Country[]>([])
   const [selectedCountry, setSelectedCountry] = useState<Country | null>(null)
   const [switcherOpen,    setSwitcherOpen]    = useState(false)
+  const [filterQuery,    setFilterQuery]    = useState('')
 
   useEffect(() => {
     supabase.from('countries')
@@ -28,19 +30,37 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
       .then(({ data }) => {
         const list = data ?? []
         setCountries(list)
-        // Auto-select country if URL is /super-admin/countries/[id]
+        setAllCountries(list)
+        // Restore from sessionStorage first
+        const stored = sessionStorage.getItem('sa_selected_country')
+        if (stored) {
+          try { setSelectedCountry(JSON.parse(stored)) } catch {}
+        }
+        // Override with URL if on a country detail page
         const match = pathname.match(/\/super-admin\/countries\/([^/]+)/)
         if (match) {
-          const found = list.find(c => c.id === match[1])
-          if (found) setSelectedCountry(found)
+          const found = list.find((c: Country) => c.id === match[1])
+          if (found) {
+            setSelectedCountry(found)
+            sessionStorage.setItem('sa_selected_country', JSON.stringify(found))
+          }
         }
       })
   }, [pathname])
 
+  function clearCountry() {
+    setSelectedCountry(null)
+    setSwitcherOpen(false)
+    setFilterQuery('')
+    sessionStorage.removeItem('sa_selected_country')
+  }
+
   function handleCountrySwitch(c: Country) {
     setSelectedCountry(c)
     setSwitcherOpen(false)
-    // Navigate to country detail page
+    setFilterQuery('')
+    // Persist so it survives navigation
+    sessionStorage.setItem('sa_selected_country', JSON.stringify(c))
     window.location.href = `/super-admin/countries/${c.id}`
   }
 
@@ -110,15 +130,25 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
             style={{ color:'rgba(149,213,178,.4)' }}>
             Switch country
           </div>
-          <button onClick={() => setSwitcherOpen(v => !v)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium transition-all"
-            style={{ background:'rgba(255,255,255,.06)', color:'rgba(255,255,255,.7)', border:'1px solid rgba(255,255,255,.08)' }}>
-            <Globe size={13} style={{ flexShrink:0 }}/>
-            <span className="flex-1 text-left truncate">
-              {selectedCountry ? selectedCountry.name : 'Select country…'}
-            </span>
-            <span style={{ color:'rgba(255,255,255,.3)', fontSize:10 }}>{switcherOpen ? '▲' : '▼'}</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => { setSwitcherOpen(v => !v); setFilterQuery('') }}
+              className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium transition-all"
+              style={{ background:'rgba(255,255,255,.06)', color:'rgba(255,255,255,.7)', border:'1px solid rgba(255,255,255,.08)' }}>
+              <Globe size={13} style={{ flexShrink:0 }}/>
+              <span className="flex-1 text-left truncate">
+                {selectedCountry ? selectedCountry.name : 'Select country…'}
+              </span>
+              <span style={{ color:'rgba(255,255,255,.3)', fontSize:10 }}>{switcherOpen ? '▲' : '▼'}</span>
+            </button>
+            {selectedCountry && (
+              <button onClick={clearCountry}
+                className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0 transition-all"
+                style={{ background:'rgba(255,255,255,.06)', color:'rgba(255,255,255,.4)', border:'1px solid rgba(255,255,255,.08)' }}
+                title="Clear selected country">
+                ✕
+              </button>
+            )}
+          </div>
 
           {switcherOpen && (
             <div className="absolute bottom-full left-4 right-4 mb-1 rounded-xl overflow-hidden z-50"
@@ -127,20 +157,16 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
                 <input autoFocus placeholder="Search…"
                   className="w-full px-2 py-1.5 rounded-lg text-[11px] outline-none"
                   style={{ background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.1)', color:'white' }}
-                  onChange={e => {
-                    const q = e.target.value.toLowerCase()
-                    setCountries(prev => {
-                      const all = (window as any).__saCountries__ ?? prev
-                      ;(window as any).__saCountries__ = all
-                      return all.filter((c: Country) =>
-                        c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
-                      )
-                    })
-                  }}
+                  value={filterQuery}
+                  onChange={e => setFilterQuery(e.target.value)}
                 />
               </div>
               <div style={{ maxHeight:220, overflowY:'auto' }}>
-                {countries.map(c => (
+                {allCountries.filter(c =>
+                  !filterQuery ||
+                  c.name.toLowerCase().includes(filterQuery.toLowerCase()) ||
+                  c.code.toLowerCase().includes(filterQuery.toLowerCase())
+                ).map(c => (
                   <button key={c.id} onClick={() => handleCountrySwitch(c)}
                     className="w-full flex items-center gap-2 px-3 py-2 text-left transition-all"
                     style={{

@@ -578,7 +578,7 @@ export default function AdminReportsPage() {
                     {selected.assessment ? `Last updated ${new Date(selected.assessment.updated_at!).toLocaleDateString()}` : 'No assessment'}
                   </div>
                 </div>
-                <Link href={`/admin/institutions/${selected.institution.id}`} className="btn btn-ghost btn-sm flex items-center gap-1">
+                <Link href={`/country-admin/institutions/${selected.institution.id}`} className="btn btn-ghost btn-sm flex items-center gap-1">
                   Manage <ArrowRight size={12}/>
                 </Link>
               </div>

@@ -25,7 +25,7 @@ export default function CountryAdminLayout({ children }: { children: React.React
         .select('full_name, email, country_id, role')
         .eq('id', user.id).single()
       if (!p) return
-      if (!['country_admin', 'super_admin'].includes(p.role)) {
+      if (!['country_admin', 'super_admin', 'admin'].includes(p.role)) {
         window.location.href = '/dashboard'; return
       }
       setProfile(p)
