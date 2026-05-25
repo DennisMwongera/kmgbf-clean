@@ -71,8 +71,6 @@ function AuthPageInner() {
   const [institutions,  setInstitutions]  = useState<Institution[]>([])
   const [countryId,     setCountryId]     = useState('')
   const [institutionId, setInstitutionId] = useState('')
-  const [newInstName,   setNewInstName]   = useState('')
-  const [addingNew,     setAddingNew]     = useState(false)
   const [loadingInsts,  setLoadingInsts]  = useState(false)
 
   // Load countries on mount
@@ -133,8 +131,8 @@ function AuthPageInner() {
     e.preventDefault()
     setError('')
     if (!countryId) { setError('Please select your country'); return }
-    if (!institutionId && !newInstName.trim()) {
-      setError('Please select your organisation or enter a new one'); return
+    if (!institutionId) {
+      setError('Please select your organisation'); return
     }
     setStep('confirm')
   }
@@ -155,20 +153,9 @@ function AuthPageInner() {
       if (!authData.user) throw new Error('User creation failed')
 
       const userId = authData.user.id
-      let finalInstId = institutionId
+      const finalInstId = institutionId
 
-      // 2. Create new institution if needed (via validated RPC)
-      if (addingNew && newInstName.trim()) {
-        const { data: newInstId, error: instError } = await supabase
-          .rpc('create_institution_for_country', {
-            p_name:       newInstName.trim(),
-            p_country_id: countryId,
-          })
-        if (instError) throw instError
-        finalInstId = newInstId
-      }
-
-      // 3. Update user profile with country + institution
+      // 2. Update user profile with country + institution
       const { error: profileError } = await supabase
         .from('user_profiles')
         .update({
@@ -338,7 +325,7 @@ function AuthPageInner() {
                   <div>
                     <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Country</label>
                     <select className="ti w-full" value={countryId}
-                      onChange={e => { setCountryId(e.target.value); setAddingNew(false); setNewInstName('') }}
+                      onChange={e => { setCountryId(e.target.value) }}
                       style={{ appearance:'none' }}>
                       <option value="">Select your country…</option>
                       {countries.map(c => (
@@ -359,30 +346,18 @@ function AuthPageInner() {
                         <div className="ti w-full text-forest-300 text-[13px]">Loading institutions…</div>
                       ) : (
                         <>
-                          <select className="ti w-full" value={addingNew ? '__new__' : institutionId}
-                            onChange={e => {
-                              if (e.target.value === '__new__') { setAddingNew(true); setInstitutionId('') }
-                              else { setAddingNew(false); setInstitutionId(e.target.value) }
-                            }}
+                          <select className="ti w-full" value={institutionId}
+                            onChange={e => setInstitutionId(e.target.value)}
                             style={{ appearance:'none' }}>
                             <option value="">Select your institution…</option>
                             {institutions.map(i => (
                               <option key={i.id} value={i.id}>{i.name}</option>
                             ))}
-                            <option value="__new__">➕ My institution is not listed</option>
                           </select>
-
-                          {addingNew && (
-                            <div className="mt-2">
-                              <input className="ti w-full" type="text"
-                                placeholder="Enter your institution name"
-                                value={newInstName}
-                                onChange={e => setNewInstName(e.target.value)}/>
-                              <p className="text-[11px] text-forest-400 mt-1">
-                                A new institution will be created for your country.
-                              </p>
-                            </div>
-                          )}
+                          <p className="text-[11px] mt-2 px-3 py-2 rounded-lg"
+                            style={{ background:'#f0faf4', color:'#2d6a4f', border:'1px solid #d8f3dc' }}>
+                            🏛️ Institution not listed? Contact your country admin to have it added first.
+                          </p>
                         </>
                       )}
                     </div>
@@ -414,7 +389,7 @@ function AuthPageInner() {
                       ['Name',    fullName],
                       ['Email',   email],
                       ['Country', selectedCountry?.name ?? '—'],
-                      ['Organisation', addingNew ? `${newInstName} (new)` : selectedInst?.name ?? '—'],
+                      ['Organisation', selectedInst?.name ?? '—'],
                     ].map(([label, value]) => (
                       <div key={label} className="flex items-start gap-3">
                         <span className="text-[12px] text-forest-400 w-28 shrink-0">{label}</span>

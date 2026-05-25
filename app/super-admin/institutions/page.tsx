@@ -58,7 +58,9 @@ export default function SuperAdminInstitutionsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+  }, [])
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
@@ -189,8 +191,21 @@ export default function SuperAdminInstitutionsPage() {
               </div>
               <div>
                 <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Type</label>
-                <input className="ti w-full" placeholder="e.g. Government Ministry"
-                  value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))}/>
+                <select className="ti w-full" value={form.type}
+                  onChange={e => setForm(p => ({ ...p, type: e.target.value }))}
+                  style={{ appearance:'none' }}>
+                  <option value="">Select type…</option>
+                  <option value="Government Ministry">Government Ministry</option>
+                  <option value="Regulatory Agency">Regulatory Agency</option>
+                  <option value="Research Institute">Research Institute</option>
+                  <option value="NGO / Civil Society">NGO / Civil Society</option>
+                  <option value="International Organization">International Organization</option>
+                  <option value="Private Sector">Private Sector</option>
+                  <option value="Academic Institution">Academic Institution</option>
+                  <option value="Protected Area Authority">Protected Area Authority</option>
+                  <option value="Local Government">Local Government</option>
+                  <option value="Other">Other</option>
+                </select>
               </div>
               <div>
                 <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Level</label>
