@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { Globe, Building2, Users, BarChart2, ArrowLeft, LogOut, ShieldCheck } from 'lucide-react'
@@ -12,8 +12,37 @@ const NAV = [
   { href:'/super-admin/users',        Icon: Users,      label:'All Users'     },
 ]
 
+interface Country { id: string; name: string; code: string }
+
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname()
+  const pathname  = usePathname()
+  const [countries,       setCountries]       = useState<Country[]>([])
+  const [selectedCountry, setSelectedCountry] = useState<Country | null>(null)
+  const [switcherOpen,    setSwitcherOpen]    = useState(false)
+
+  useEffect(() => {
+    supabase.from('countries')
+      .select('id, name, code')
+      .eq('status', 'active')
+      .order('name')
+      .then(({ data }) => {
+        const list = data ?? []
+        setCountries(list)
+        // Auto-select country if URL is /super-admin/countries/[id]
+        const match = pathname.match(/\/super-admin\/countries\/([^/]+)/)
+        if (match) {
+          const found = list.find(c => c.id === match[1])
+          if (found) setSelectedCountry(found)
+        }
+      })
+  }, [pathname])
+
+  function handleCountrySwitch(c: Country) {
+    setSelectedCountry(c)
+    setSwitcherOpen(false)
+    // Navigate to country detail page
+    window.location.href = `/super-admin/countries/${c.id}`
+  }
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -74,6 +103,62 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
             )
           })}
         </nav>
+
+        {/* Country switcher */}
+        <div className="relative px-4 py-3 border-t border-white/[0.06]">
+          <div className="text-[9px] font-bold tracking-[1.5px] uppercase mb-2"
+            style={{ color:'rgba(149,213,178,.4)' }}>
+            Switch country
+          </div>
+          <button onClick={() => setSwitcherOpen(v => !v)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium transition-all"
+            style={{ background:'rgba(255,255,255,.06)', color:'rgba(255,255,255,.7)', border:'1px solid rgba(255,255,255,.08)' }}>
+            <Globe size={13} style={{ flexShrink:0 }}/>
+            <span className="flex-1 text-left truncate">
+              {selectedCountry ? selectedCountry.name : 'Select country…'}
+            </span>
+            <span style={{ color:'rgba(255,255,255,.3)', fontSize:10 }}>{switcherOpen ? '▲' : '▼'}</span>
+          </button>
+
+          {switcherOpen && (
+            <div className="absolute bottom-full left-4 right-4 mb-1 rounded-xl overflow-hidden z-50"
+              style={{ background:'#1a3a2a', border:'1px solid rgba(255,255,255,.12)', boxShadow:'0 8px 32px rgba(0,0,0,.4)' }}>
+              <div className="p-2 border-b border-white/[0.06]">
+                <input autoFocus placeholder="Search…"
+                  className="w-full px-2 py-1.5 rounded-lg text-[11px] outline-none"
+                  style={{ background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.1)', color:'white' }}
+                  onChange={e => {
+                    const q = e.target.value.toLowerCase()
+                    setCountries(prev => {
+                      const all = (window as any).__saCountries__ ?? prev
+                      ;(window as any).__saCountries__ = all
+                      return all.filter((c: Country) =>
+                        c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
+                      )
+                    })
+                  }}
+                />
+              </div>
+              <div style={{ maxHeight:220, overflowY:'auto' }}>
+                {countries.map(c => (
+                  <button key={c.id} onClick={() => handleCountrySwitch(c)}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left transition-all"
+                    style={{
+                      fontSize:11.5,
+                      color: selectedCountry?.id === c.id ? 'white' : 'rgba(255,255,255,.7)',
+                      background: selectedCountry?.id === c.id ? 'rgba(82,183,136,.15)' : 'transparent',
+                    }}>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                      style={{ background:'rgba(82,183,136,.2)', color:'#52b788' }}>
+                      {c.code}
+                    </span>
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Links */}
         <div className="relative px-4 py-3 border-t border-white/[0.06] space-y-1.5">
