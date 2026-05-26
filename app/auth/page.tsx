@@ -155,19 +155,31 @@ function AuthPageInner() {
       const userId = authData.user.id
       const finalInstId = institutionId
 
-      // 2. Update user profile with country + institution
-      const { error: profileError } = await supabase
-        .from('user_profiles')
-        .update({
-          full_name:      fullName,
-          country_id:     countryId,
-          institution_id: finalInstId || null,
-          role:           'contributor',
-          status:         'pending',
-        })
-        .eq('id', userId)
+      // 2. Upsert user profile — use upsert so it works whether or not
+      //    the DB trigger has already created the row
+      const profileData = {
+        id:             userId,
+        full_name:      fullName,
+        email:          email,
+        country_id:     countryId,
+        institution_id: finalInstId || null,
+        role:           'contributor' as const,
+        status:         'pending',
+      }
 
-      if (profileError) throw profileError
+      // Try upsert first
+      const { error: upsertError } = await supabase
+        .from('user_profiles')
+        .upsert(profileData, { onConflict: 'id' })
+
+      if (upsertError) {
+        // If upsert fails, wait 1s for trigger then try again
+        await new Promise(r => setTimeout(r, 1000))
+        const { error: retryError } = await supabase
+          .from('user_profiles')
+          .upsert(profileData, { onConflict: 'id' })
+        if (retryError) throw retryError
+      }
 
       setSuccess('Account created! Check your email to confirm your address. A country admin will then activate your account before you can sign in.')
       setMode('signin')
