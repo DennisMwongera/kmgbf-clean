@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase/client'
 interface Country { id: string; name: string; code: string; region: string | null }
 interface Institution { id: string; name: string; type: string | null; level: string | null }
 
-type AuthMode = 'signin' | 'register' | 'forgot'
+type AuthMode = 'signin' | 'register' | 'forgot' | 'confirm'
 type RegisterStep = 'credentials' | 'location' | 'confirm'
 
 // ─── Step indicator ───────────────────────────────────────────
@@ -155,34 +155,19 @@ function AuthPageInner() {
       const userId = authData.user.id
       const finalInstId = institutionId
 
-      // 2. Upsert user profile — use upsert so it works whether or not
-      //    the DB trigger has already created the row
-      const profileData = {
-        id:             userId,
-        full_name:      fullName,
-        email:          email,
-        country_id:     countryId,
-        institution_id: finalInstId || null,
-        role:           'contributor' as const,
-        status:         'pending',
-      }
+      // 2. Call server-side function to reliably set institution + country
+      // Uses SECURITY DEFINER so it bypasses RLS and handles trigger timing
+      const { error: profileError } = await supabase.rpc('register_user_profile', {
+        p_user_id:       userId,
+        p_full_name:     fullName,
+        p_email:         email,
+        p_country_id:    countryId,
+        p_institution_id: finalInstId || null,
+      })
 
-      // Try upsert first
-      const { error: upsertError } = await supabase
-        .from('user_profiles')
-        .upsert(profileData, { onConflict: 'id' })
+      if (profileError) throw profileError
 
-      if (upsertError) {
-        // If upsert fails, wait 1s for trigger then try again
-        await new Promise(r => setTimeout(r, 1000))
-        const { error: retryError } = await supabase
-          .from('user_profiles')
-          .upsert(profileData, { onConflict: 'id' })
-        if (retryError) throw retryError
-      }
-
-      setSuccess('Account created! Check your email to confirm your address. A country admin will then activate your account before you can sign in.')
-      setMode('signin')
+      setMode('confirm')
     } catch (err: any) {
       setError(err.message ?? 'Registration failed')
     } finally {
@@ -427,6 +412,48 @@ function AuthPageInner() {
                 </form>
               )}
             </>
+          )}
+
+          {/* ── EMAIL CONFIRMATION SCREEN ── */}
+          {mode === 'confirm' && (
+            <div className="text-center py-2">
+              <div className="w-16 h-16 rounded-full mx-auto mb-5 flex items-center justify-center"
+                style={{ background:'#d8f3dc' }}>
+                <span style={{ fontSize:32 }}>📧</span>
+              </div>
+              <h2 className="text-[22px] font-bold mb-3"
+                style={{ fontFamily:'var(--font-display)', color:'#0f2d1c' }}>
+                Check your email
+              </h2>
+              <p className="text-[13px] text-forest-500 mb-2">
+                We've sent a confirmation link to
+              </p>
+              <p className="text-[13.5px] font-semibold text-forest-700 mb-5 break-all">
+                {email}
+              </p>
+              <div className="rounded-xl p-4 mb-5 text-left"
+                style={{ background:'#f0faf4', border:'1px solid #d8f3dc' }}>
+                <div className="flex items-start gap-2">
+                  <span style={{ fontSize:16 }}>✓</span>
+                  <div className="text-[12.5px] text-forest-600">
+                    <div className="font-semibold text-forest-700 mb-1">Next steps</div>
+                    <ol className="space-y-1.5">
+                      <li>1. Open the email and click the confirmation link</li>
+                      <li>2. Your country admin will activate your account</li>
+                      <li>3. Sign in to access the assessment tool</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[11.5px] text-forest-400 mb-5">
+                Didn't receive the email? Check your spam folder or contact your country admin.
+              </p>
+              <button onClick={() => { setMode('signin'); setSuccess(''); setError('') }}
+                className="w-full py-3 rounded-xl text-[13.5px] font-bold text-white transition-all"
+                style={{ background:'#1b4332' }}>
+                Back to Sign In
+              </button>
+            </div>
           )}
 
           {/* ── FORGOT PASSWORD ── */}
