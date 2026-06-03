@@ -36,11 +36,13 @@ function StatusBadge({ status }: { status: string | null }) {
 export default function CountryAdminOverviewPage() {
   const [institutions, setInstitutions] = useState<Institution[]>([])
   const [loading,      setLoading]      = useState(true)
+  const [loadError,    setLoadError]    = useState(false)
   const [countryId,    setCountryId]    = useState<string | null>(null)
   const [countryName,  setCountryName]  = useState('')
 
   useEffect(() => {
     async function load() {
+    try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
