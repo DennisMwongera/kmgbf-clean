@@ -42,7 +42,7 @@ export default function CountryAdminOverviewPage() {
 
   useEffect(() => {
     async function load() {
-    try {
+      try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
@@ -123,7 +123,12 @@ export default function CountryAdminOverviewPage() {
           overall_score:  aid ? (scoreByAssess[aid] ?? null) : null,
         }
       }))
-      setLoading(false)
+      } catch (err) {
+        console.error('Load error:', err)
+        setLoadError(true)
+      } finally {
+        setLoading(false)
+      }
     }
     load()
   }, [])
