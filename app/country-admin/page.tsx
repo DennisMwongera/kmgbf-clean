@@ -52,23 +52,27 @@ export default function CountryAdminOverviewPage() {
         .eq('id', user.id)
         .single()
 
-      if (!profile?.country_id) {
+      // Resolve country: URL param > profile.country_id
+      const urlParams = new URLSearchParams(window.location.search)
+      const urlCountry = urlParams.get('country')
+      let effectiveCountryId = urlCountry || profile?.country_id || null
+      if (!effectiveCountryId) {
         setLoading(false)
         setCountryId('__none__')
         return
       }
-      setCountryId(profile.country_id)
+      setCountryId(effectiveCountryId)
 
       // Get country name
       const { data: country } = await supabase
-        .from('countries').select('name').eq('id', profile.country_id).single()
+        .from('countries').select('name').eq('id', effectiveCountryId).single()
       setCountryName(country?.name ?? '')
 
       // Get all institutions in this country
       const { data: insts } = await supabase
         .from('institutions')
         .select('id, name, type, level')
-        .eq('country_id', profile.country_id)
+        .eq('country_id', effectiveCountryId)
         .order('name')
 
       if (!insts?.length) { setLoading(false); return }

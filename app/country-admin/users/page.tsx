@@ -32,17 +32,20 @@ export default function CountryAdminUsersPage() {
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
-      const { data: p } = await supabase.from('user_profiles').select('country_id').eq('id', user.id).single()
-      if (!p?.country_id) { setLoading(false); return }
+      const { data: p } = await supabase.from('user_profiles').select('country_id, role').eq('id', user.id).single()
+      const urlParams = new URLSearchParams(window.location.search)
+      const urlCountry = urlParams.get('country')
+      let cid = urlCountry || p?.country_id || null
+      if (!cid) { setLoading(false); return }
 
       const [{ data: users }, { data: insts }] = await Promise.all([
         supabase.from('user_profiles')
           .select('id, full_name, email, role, status, institution_id, created_at')
-          .eq('country_id', p.country_id)
+          .eq('country_id', cid)
           .not('role', 'in', '("super_admin","country_admin","admin")')
           .order('status', { ascending: true })
           .order('created_at', { ascending: false }),
-        supabase.from('institutions').select('id, name').eq('country_id', p.country_id).order('name'),
+        supabase.from('institutions').select('id, name').eq('country_id', cid).order('name'),
       ])
 
       const iMap: Record<string,string> = {}

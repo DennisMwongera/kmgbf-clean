@@ -89,10 +89,13 @@ export default function CountryAdminInstitutionsPage() {
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
-      const { data: p } = await supabase.from('user_profiles').select('country_id').eq('id', user.id).single()
-      if (!p?.country_id) { setLoading(false); return }
-      setCountryId(p.country_id)
-      load(p.country_id)
+      const { data: p } = await supabase.from('user_profiles').select('country_id, role').eq('id', user.id).single()
+      const urlParams = new URLSearchParams(window.location.search)
+      const urlCountry = urlParams.get('country')
+      let cid = urlCountry || p?.country_id || null
+      if (!cid) { setLoading(false); return }
+      setCountryId(cid)
+      load(cid)
     })
   }, [])
 
