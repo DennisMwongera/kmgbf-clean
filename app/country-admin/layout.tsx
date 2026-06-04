@@ -5,17 +5,18 @@ import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { LayoutDashboard, Building2, Users, BarChart2, ArrowLeft, LogOut, Globe } from 'lucide-react'
 
-const NAV = [
+const NAV: { href: string; Icon: any; label: string; badge?: boolean }[] = [
   { href:'/country-admin',                Icon: LayoutDashboard, label:'Overview'         },
   { href:'/country-admin/institutions',   Icon: Building2,       label:'Institutions'     },
-  { href:'/country-admin/users',          Icon: Users,           label:'Users'            },
+  { href:'/country-admin/users',          Icon: Users,           label:'Users',  badge: true },
   { href:'/country-admin/reports',        Icon: BarChart2,       label:'National Reports' },
 ]
 
 export default function CountryAdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const [profile,  setProfile]  = useState<any>(null)
-  const [country,  setCountry]  = useState<any>(null)
+  const [profile,     setProfile]     = useState<any>(null)
+  const [country,     setCountry]     = useState<any>(null)
+  const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -33,6 +34,13 @@ export default function CountryAdminLayout({ children }: { children: React.React
         const { data: c } = await supabase
           .from('countries').select('id, name, code').eq('id', p.country_id).single()
         setCountry(c)
+        // Load pending users count
+        const { count } = await supabase
+          .from('user_profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('country_id', p.country_id)
+          .eq('status', 'pending')
+        setPendingCount(count ?? 0)
       }
     })
   }, [])
@@ -90,7 +98,7 @@ export default function CountryAdminLayout({ children }: { children: React.React
 
         {/* Nav */}
         <nav className="relative flex-1 py-2 overflow-y-auto">
-          {NAV.map(({ href, Icon, label }) => {
+          {NAV.map(({ href, Icon, label, badge }) => {
             const active = href === '/country-admin' ? pathname === '/country-admin' : pathname.startsWith(href)
             return (
               <Link key={href} href={href}
@@ -100,7 +108,14 @@ export default function CountryAdminLayout({ children }: { children: React.React
                   background:      active ? 'rgba(59,130,246,.12)' : 'transparent',
                   borderLeftColor: active ? '#60a5fa' : 'transparent',
                 }}>
-                <Icon size={15} style={{ opacity: active ? 1 : 0.6 }}/>{label}
+                <Icon size={15} style={{ opacity: active ? 1 : 0.6 }}/>
+                <span className="flex-1">{label}</span>
+                {badge && pendingCount > 0 && (
+                  <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[9px] font-bold px-1"
+                    style={{ background:'#f59e0b', color:'white' }}>
+                    {pendingCount}
+                  </span>
+                )}
               </Link>
             )
           })}
