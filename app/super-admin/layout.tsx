@@ -53,6 +53,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
     setSwitcherOpen(false)
     setFilterQuery('')
     sessionStorage.removeItem('sa_selected_country')
+    window.dispatchEvent(new CustomEvent('sa-country-changed', { detail: null }))
   }
 
   function handleCountrySwitch(c: Country) {
@@ -60,11 +61,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
     setSwitcherOpen(false)
     setFilterQuery('')
     sessionStorage.setItem('sa_selected_country', JSON.stringify(c))
-  }
-
-  function goToCountryAdmin() {
-    if (!selectedCountry) return
-    window.location.href = `/country-admin?country=${selectedCountry.id}`
+    window.dispatchEvent(new CustomEvent('sa-country-changed', { detail: c }))
   }
 
   useEffect(() => {
@@ -191,11 +188,6 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
 
         {/* Links */}
         <div className="relative px-4 py-3 border-t border-white/[0.06] space-y-1.5">
-          <Link href="/country-admin"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium transition-colors"
-            style={{ background:'rgba(59,130,246,.1)', color:'#93c5fd' }}>
-            <Globe size={13}/> Country Admin View
-          </Link>
           <Link href="/dashboard"
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium transition-colors"
             style={{ background:'rgba(82,183,136,.1)', color:'#52b788' }}>
