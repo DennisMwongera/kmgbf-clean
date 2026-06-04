@@ -1,381 +1,265 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import { ArrowLeft, Building2, ClipboardList, Target, BookOpen, Loader2, ChevronRight, Globe } from 'lucide-react'
+import { Building2, Plus, Loader2, ChevronRight, X, Check, Trash2, AlertTriangle, Pencil } from 'lucide-react'
 import Link from 'next/link'
-import { DIMENSIONS, CORE_QUESTIONS, KMGBF_TARGETS } from '@/lib/constants'
 
-interface Props { params: { id: string } }
-
-function scoreColor(v: number | null) {
-  if (v === null) return '#9ca3af'
-  if (v < 1) return '#dc2626'; if (v < 2) return '#ea580c'
-  if (v < 3) return '#ca8a04'; if (v < 4) return '#16a34a'
-  return '#047857'
+interface Institution {
+  id: string; name: string; type: string | null; level: string | null
+  country_id: string | null; country_name: string | null; country_code: string | null
+  assessment_count: number; user_count: number
 }
-function scoreBg(v: number | null) {
-  if (v === null) return '#f3f4f6'
-  if (v < 1) return '#fee2e2'; if (v < 2) return '#ffedd5'
-  if (v < 3) return '#fef9c3'; if (v < 4) return '#dcfce7'
-  return '#d8f3dc'
-}
-function interpret(v: number | null) {
-  if (v === null) return 'Not assessed'
-  if (v < 1) return 'Critical'; if (v < 2) return 'Very limited'
-  if (v < 2.5) return 'Basic'; if (v < 3.5) return 'Moderate'
-  if (v < 4.5) return 'Strong'; return 'Fully adequate'
-}
+interface Country { id: string; name: string; code: string }
 
-function ScoreChip({ v }: { v: number | null }) {
-  return (
-    <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold"
-      style={{ background: scoreBg(v), color: scoreColor(v) }}>
-      {v !== null ? v.toFixed(2) : '—'}
-    </span>
-  )
-}
+const INST_TYPES  = ['Government Ministry','Regulatory Agency','Research Institute','NGO / Civil Society','International Organization','Private Sector','Academic Institution','Protected Area Authority','Local Government','Other']
+const INST_LEVELS = ['National','Regional','Local','International']
+const EMPTY_FORM  = { name:'', type:'', level:'', country_id:'' }
 
-type Tab = 'overview' | 'core' | 'targets' | 'cdp'
-
-export default function SuperAdminInstitutionDetailPage({ params }: Props) {
-  const [institution,  setInstitution]  = useState<any>(null)
-  const [assessment,   setAssessment]   = useState<any>(null)
-  const [coreRows,     setCoreRows]     = useState<any[]>([])
-  const [targetRows,   setTargetRows]   = useState<any[]>([])
-  const [cdpRows,      setCdpRows]      = useState<any[]>([])
-  const [country,      setCountry]      = useState<any>(null)
+export default function SuperAdminInstitutionsPage() {
+  const [institutions, setInstitutions] = useState<Institution[]>([])
+  const [countries,    setCountries]    = useState<Country[]>([])
   const [loading,      setLoading]      = useState(true)
-  const [activeTab,    setActiveTab]    = useState<Tab>('overview')
+  const [search,       setSearch]       = useState('')
+  const [filterCountry,setFilterCountry]= useState('')
+  const [showForm,     setShowForm]     = useState(false)
+  const [editTarget,   setEditTarget]   = useState<Institution | null>(null)
+  const [confirmDel,   setConfirmDel]   = useState<Institution | null>(null)
+  const [deleting,     setDeleting]     = useState<string | null>(null)
+  const [form,         setForm]         = useState(EMPTY_FORM)
+  const [saving,       setSaving]       = useState(false)
+  const [error,        setError]        = useState('')
 
-  useEffect(() => {
-    async function load() {
-      // Institution
-      const { data: inst } = await supabase
-        .from('institutions').select('*').eq('id', params.id).single()
-      setInstitution(inst)
+  async function load() {
+    setLoading(true)
+    const [{ data: insts }, { data: ctrs }, { data: assessCounts }, { data: userCounts }] = await Promise.all([
+      supabase.from('institutions').select('id, name, type, level, country_id').order('name'),
+      supabase.from('countries').select('id, name, code').eq('status','active').order('name'),
+      supabase.from('assessments').select('institution_id'),
+      supabase.from('user_profiles').select('institution_id').not('institution_id','is',null),
+    ])
+    const countryMap: Record<string, Country> = {}
+    ctrs?.forEach(c => { countryMap[c.id] = c })
+    const am: Record<string,number> = {}
+    const um: Record<string,number> = {}
+    assessCounts?.forEach(r => { am[r.institution_id] = (am[r.institution_id]??0)+1 })
+    userCounts?.forEach(r => { if(r.institution_id) um[r.institution_id] = (um[r.institution_id]??0)+1 })
+    setInstitutions((insts ?? []).map(i => ({
+      id: i.id, name: i.name, type: i.type, level: i.level,
+      country_id:       i.country_id,
+      country_name:     i.country_id ? (countryMap[i.country_id]?.name ?? null) : null,
+      country_code:     i.country_id ? (countryMap[i.country_id]?.code ?? null) : null,
+      assessment_count: am[i.id] ?? 0,
+      user_count:       um[i.id] ?? 0,
+    })))
+    setCountries(ctrs ?? [])
+    setLoading(false)
+  }
 
-      // Country
-      if (inst?.country_id) {
-        const { data: c } = await supabase
-          .from('countries').select('id, name, code').eq('id', inst.country_id).single()
-        setCountry(c)
-      }
+  useEffect(() => { load() }, [])
 
-      // Latest assessment
-      const { data: assessments } = await supabase
-        .from('assessments').select('*')
-        .eq('institution_id', params.id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-      const assessment = assessments?.[0] ?? null
-      setAssessment(assessment)
+  function openAdd()              { setEditTarget(null); setForm(EMPTY_FORM); setError(''); setShowForm(true) }
+  function openEdit(i: Institution) { setEditTarget(i); setForm({ name: i.name, type: i.type??'', level: i.level??'', country_id: i.country_id??'' }); setError(''); setShowForm(true) }
 
-      if (!assessment) { setLoading(false); return }
-
-      // Load all data in parallel
-      const [
-        { data: core },
-        { data: targets },
-        { data: cdp },
-      ] = await Promise.all([
-        supabase.from('core_responses').select('*').eq('assessment_id', assessment.id).order('question_index'),
-        supabase.from('target_responses').select('*').eq('assessment_id', assessment.id).order('target_num').order('indicator_index'),
-        supabase.from('cdp_rows').select('*').eq('assessment_id', assessment.id).eq('archived', false).order('sort_order'),
-      ])
-
-      setCoreRows(core ?? [])
-      setTargetRows(targets ?? [])
-      setCdpRows(cdp ?? [])
-      setLoading(false)
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault(); setError('')
+    if (!form.name.trim()) { setError('Name is required'); return }
+    if (!editTarget && !form.country_id) { setError('Country is required'); return }
+    setSaving(true)
+    if (editTarget) {
+      const { error } = await supabase.from('institutions')
+        .update({ name: form.name.trim(), type: form.type||null, level: form.level||null, country_id: form.country_id||editTarget.country_id })
+        .eq('id', editTarget.id)
+      if (error) { setError(error.message); setSaving(false); return }
+      const cMap: Record<string,Country> = {}
+      countries.forEach(c => { cMap[c.id] = c })
+      const cid = form.country_id || editTarget.country_id
+      setInstitutions(prev => prev.map(i => i.id === editTarget.id ? {
+        ...i, name: form.name.trim(), type: form.type||null, level: form.level||null,
+        country_id: cid, country_name: cid ? (cMap[cid]?.name??null) : null, country_code: cid ? (cMap[cid]?.code??null) : null,
+      } : i))
+    } else {
+      const { error } = await supabase.from('institutions').insert({
+        name: form.name.trim(), type: form.type||null, level: form.level||null, country_id: form.country_id,
+      })
+      if (error) { setError(error.message); setSaving(false); return }
+      load()
     }
-    load()
-  }, [params.id])
+    setSaving(false); setShowForm(false)
+  }
 
-  // Compute dim scores
-  const dimScores: Record<string, number | null> = {}
-  DIMENSIONS.forEach(dim => {
-    const qIdxs = CORE_QUESTIONS.map((q,i) => ({q,i})).filter(({q}) => q.section === dim).map(({i}) => i)
-    const rows  = coreRows.filter(r => qIdxs.includes(r.question_index) && r.score !== null && r.score !== -1)
-    dimScores[dim] = rows.length > 0 ? rows.reduce((s,r) => s+(r.score??0), 0) / rows.length : null
+  async function handleDelete(i: Institution) {
+    if (i.assessment_count > 0 || i.user_count > 0) { setConfirmDel(i); return }
+    doDelete(i.id)
+  }
+  async function doDelete(id: string) {
+    setDeleting(id); setConfirmDel(null)
+    await supabase.from('institutions').delete().eq('id', id)
+    setInstitutions(prev => prev.filter(i => i.id !== id))
+    setDeleting(null)
+  }
+
+  const filtered = institutions.filter(i => {
+    const matchSearch  = !search || i.name.toLowerCase().includes(search.toLowerCase())
+    const matchCountry = !filterCountry || i.country_id === filterCountry
+    return matchSearch && matchCountry
   })
-  const validDims   = Object.values(dimScores).filter((v): v is number => v !== null)
-  const overallScore = validDims.length > 0 ? validDims.reduce((a,b) => a+b, 0) / validDims.length : null
-  const answeredCount = coreRows.filter(r => r.score !== null && r.score !== -1).length
-
-  // Target scores
-  const targetScores: Record<number, number | null> = {}
-  KMGBF_TARGETS.forEach(t => {
-    const rows = targetRows.filter(r => r.target_num === t.num && r.score !== null && r.score !== -1)
-    targetScores[t.num] = rows.length > 0 ? rows.reduce((s,r) => s+(r.score??0), 0) / rows.length : null
-  })
-
-  const TABS: { id: Tab; label: string; Icon: any }[] = [
-    { id:'overview', label:'Overview',    Icon: Building2    },
-    { id:'core',     label:'Core (50)',   Icon: ClipboardList },
-    { id:'targets',  label:'Targets',     Icon: Target       },
-    { id:'cdp',      label:'Dev. Plan',   Icon: BookOpen     },
-  ]
-
-  if (loading) return (
-    <div className="flex items-center justify-center py-20">
-      <Loader2 size={24} className="animate-spin" style={{ color:'#52b788' }}/>
-    </div>
-  )
 
   return (
     <div className="fade-in">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 mb-5 text-[12.5px]">
-        <Link href="/super-admin" className="text-forest-400 hover:text-forest-600">Super Admin</Link>
-        <ChevronRight size={12} style={{ color:'#9ca3af' }}/>
-        {country && (
-          <>
-            <Link href={`/super-admin/countries/${country.id}`} className="text-forest-400 hover:text-forest-600">
-              {country.name}
-            </Link>
-            <ChevronRight size={12} style={{ color:'#9ca3af' }}/>
-          </>
-        )}
-        <span className="font-semibold text-forest-700 truncate max-w-xs">{institution?.name}</span>
+      <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
+        <div>
+          <h2 style={{ fontFamily:'var(--font-display)', fontSize:26, fontWeight:700, color:'#0f2d1c' }}>All Institutions</h2>
+          <p className="text-[13px] text-forest-400 mt-1">{institutions.length} institutions across all countries</p>
+        </div>
+        <button onClick={openAdd}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white"
+          style={{ background:'#1b4332' }}>
+          <Plus size={14}/> Add Institution
+        </button>
       </div>
 
-      {/* Header */}
-      <div className="card mb-5">
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              {country && (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                  style={{ background:'#f0faf4', color:'#2d6a4f', border:'1px solid #d8f3dc' }}>
-                  {country.code}
-                </span>
-              )}
-              <h2 style={{ fontFamily:'var(--font-display)', fontSize:22, fontWeight:700, color:'#0f2d1c' }}>
-                {institution?.name}
-              </h2>
-            </div>
-            <div className="text-[12.5px] text-forest-400">
-              {institution?.type} · {institution?.level}
-              {country && <> · <Globe size={11} className="inline mb-0.5"/> {country.name}</>}
-            </div>
-            {assessment && (
-              <div className="flex items-center gap-2 mt-2">
-                <span className="chip text-[10px]" style={{
-                  background: assessment.status==='submitted'?'#dbeafe':assessment.status==='approved'?'#d8f3dc':assessment.status==='in_review'?'#ede9fe':'#fef3c7',
-                  color:      assessment.status==='submitted'?'#1d4ed8':assessment.status==='approved'?'#1b4332':assessment.status==='in_review'?'#6d28d9':'#d97706',
-                }}>
-                  {assessment.status?.replace('_',' ')}
-                </span>
-                <span className="text-[11px] text-forest-400">
-                  Last updated {new Date(assessment.updated_at).toLocaleDateString()}
-                </span>
-              </div>
-            )}
-          </div>
-          {/* Overall score */}
-          {overallScore !== null && (
-            <div className="text-center px-6 py-4 rounded-2xl" style={{ background:'#f6f3ee' }}>
-              <div className="text-[10px] font-bold uppercase tracking-wide text-forest-400 mb-1">Overall Score</div>
-              <div className="text-[36px] font-light" style={{ fontFamily:'var(--font-mono)', color:scoreColor(overallScore) }}>
-                {overallScore.toFixed(2)}
-              </div>
-              <div className="text-[11px] mt-0.5" style={{ color:scoreColor(overallScore) }}>{interpret(overallScore)}</div>
-              <div className="text-[10px] text-forest-400 mt-1">{answeredCount}/50 answered</div>
-            </div>
-          )}
-        </div>
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <input className="ti flex-1 min-w-48" placeholder="Search institutions…" value={search} onChange={e => setSearch(e.target.value)}/>
+        <select className="ti w-52" value={filterCountry} onChange={e => setFilterCountry(e.target.value)} style={{ appearance:'none' }}>
+          <option value="">All countries</option>
+          {countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
       </div>
 
-      {!assessment ? (
-        <div className="card text-center py-12 text-forest-400">
-          No assessment has been started for this institution yet.
-        </div>
+      {loading ? (
+        <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin" style={{ color:'#52b788' }}/></div>
       ) : (
-        <>
-          {/* Tabs */}
-          <div className="flex gap-1 mb-5 bg-sand-100 p-1 rounded-xl w-fit flex-wrap">
-            {TABS.map(({ id, label, Icon }) => (
-              <button key={id} onClick={() => setActiveTab(id)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-medium transition-all"
-                style={{ background: activeTab===id?'white':'transparent', color: activeTab===id?'#1b4332':'#6b7280', boxShadow: activeTab===id?'0 1px 4px rgba(0,0,0,.08)':'none' }}>
-                <Icon size={13}/> {label}
-              </button>
-            ))}
-          </div>
-
-          {/* ── Overview ── */}
-          {activeTab === 'overview' && (
-            <div className="grid grid-cols-2 gap-5">
-              {/* Dimension scores */}
-              <div className="card">
-                <div className="text-[11px] font-bold uppercase tracking-wide text-forest-400 mb-4">Dimension Scores</div>
-                <div className="space-y-3">
-                  {DIMENSIONS.map(dim => {
-                    const v   = dimScores[dim]
-                    const pct = v !== null ? (v/5)*100 : 0
-                    return (
-                      <div key={dim} className="flex items-center gap-3">
-                        <div className="text-[11.5px] text-forest-600 w-44 shrink-0 truncate">{dim}</div>
-                        <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ background:'#e8e3da' }}>
-                          <div className="h-full rounded-full flex items-center ps-1.5"
-                            style={{ width:`${pct}%`, background:scoreColor(v), minWidth: v!==null?28:0 }}>
-                            {v !== null && <span className="text-[9px] text-white font-bold">{v.toFixed(1)}</span>}
-                          </div>
+        <div className="bg-white rounded-2xl border border-sand-300 overflow-hidden">
+          <table className="rt w-full">
+            <thead><tr><th>Institution</th><th>Country</th><th>Type</th><th>Assessments</th><th>Users</th><th></th></tr></thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr><td colSpan={6} className="text-center py-10 text-forest-300">No institutions found</td></tr>
+              ) : filtered.map(i => (
+                <tr key={i.id}>
+                  <td>
+                    <div className="font-semibold text-[12.5px] text-forest-700">{i.name}</div>
+                    {i.level && <div className="text-[10px] text-forest-400">{i.level}</div>}
+                  </td>
+                  <td>
+                    {i.country_name
+                      ? <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background:'#f0faf4', color:'#2d6a4f', border:'1px solid #d8f3dc' }}>{i.country_code}</span>
+                          <span className="text-[12px] text-forest-600">{i.country_name}</span>
                         </div>
-                        <span className="text-[10.5px] font-bold w-12 shrink-0 text-right" style={{ color:scoreColor(v) }}>
-                          {v?.toFixed(2) ?? '—'}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
+                      : <span className="text-forest-300 text-[12px]">—</span>}
+                  </td>
+                  <td className="text-[12px] text-forest-400">{i.type ?? '—'}</td>
+                  <td className="font-mono text-[12px]">{i.assessment_count || '—'}</td>
+                  <td className="font-mono text-[12px]">{i.user_count || '—'}</td>
+                  <td>
+                    <div className="flex items-center gap-1">
+                      <Link href={`/super-admin/institutions/${i.id}`} className="btn btn-ghost btn-sm flex items-center gap-1">
+                        View <ChevronRight size={11}/>
+                      </Link>
+                      <button onClick={() => openEdit(i)}
+                        className="w-7 h-7 flex items-center justify-center rounded hover:bg-blue-50 transition-all"
+                        style={{ color:'#3b82f6' }} title="Edit">
+                        <Pencil size={12}/>
+                      </button>
+                      <button onClick={() => handleDelete(i)} disabled={deleting === i.id}
+                        className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 transition-all"
+                        style={{ color:'#dc2626' }} title="Delete">
+                        {deleting === i.id ? <Loader2 size={12} className="animate-spin"/> : <Trash2 size={12}/>}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add / Edit modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={e => { if (e.target === e.currentTarget) setShowForm(false) }}>
+          <div className="bg-white rounded-2xl p-7 w-full max-w-md" style={{ boxShadow:'0 24px 60px rgba(0,0,0,.25)' }}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'#0f2d1c' }}>
+                {editTarget ? 'Edit Institution' : 'Add Institution'}
+              </h3>
+              <button onClick={() => setShowForm(false)} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-sand-100">
+                <X size={14} style={{ color:'#9ca3af' }}/>
+              </button>
+            </div>
+            {error && <div className="mb-4 px-3 py-2 rounded-lg text-[12.5px]" style={{ background:'#fee2e2', color:'#dc2626' }}>{error}</div>}
+            <form onSubmit={handleSave} className="space-y-4">
+              <div>
+                <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Country {!editTarget && '*'}</label>
+                <select className="ti w-full" value={form.country_id}
+                  onChange={e => setForm(p => ({ ...p, country_id: e.target.value }))} style={{ appearance:'none' }}>
+                  <option value="">Select country…</option>
+                  {countries.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
+                </select>
               </div>
+              <div>
+                <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Institution Name *</label>
+                <input className="ti w-full" placeholder="e.g. Ministry of Environment"
+                  value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} required/>
+              </div>
+              <div>
+                <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Type</label>
+                <select className="ti w-full" value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))} style={{ appearance:'none' }}>
+                  <option value="">Select type…</option>
+                  {INST_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[12px] font-semibold text-forest-600 mb-1.5">Level</label>
+                <select className="ti w-full" value={form.level} onChange={e => setForm(p => ({ ...p, level: e.target.value }))} style={{ appearance:'none' }}>
+                  <option value="">Select level…</option>
+                  {INST_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setShowForm(false)}
+                  className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border"
+                  style={{ borderColor:'#e8e3da', color:'#5c7566' }}>Cancel</button>
+                <button type="submit" disabled={saving}
+                  className="flex-[2] py-2.5 rounded-xl text-[13px] font-bold text-white flex items-center justify-center gap-2"
+                  style={{ background: saving ? '#9ca3af' : '#1b4332' }}>
+                  {saving ? <Loader2 size={13} className="animate-spin"/> : <Check size={13}/>}
+                  {saving ? 'Saving…' : editTarget ? 'Save Changes' : 'Add Institution'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
-              {/* Target scores */}
-              <div className="card">
-                <div className="text-[11px] font-bold uppercase tracking-wide text-forest-400 mb-4">Target Scores</div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {KMGBF_TARGETS.map(t => {
-                    const v = targetScores[t.num]
-                    return (
-                      <div key={t.num} className="flex items-center gap-2 py-0.5">
-                        <span className="text-[10px] font-bold text-forest-400 w-6 shrink-0">T{t.num}</span>
-                        <span className="text-[11px] text-forest-600 truncate flex-1">{t.title}</span>
-                        <span className="text-[10.5px] font-bold shrink-0" style={{ color:scoreColor(v) }}>
-                          {v?.toFixed(1) ?? '—'}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
+      {/* Confirm delete */}
+      {confirmDel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl p-7 w-full max-w-sm" style={{ boxShadow:'0 24px 60px rgba(0,0,0,.25)' }}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background:'#fee2e2' }}>
+                <AlertTriangle size={18} style={{ color:'#dc2626' }}/>
+              </div>
+              <div>
+                <div className="font-bold text-forest-800">Delete Institution?</div>
+                <div className="text-[12px] text-forest-400 mt-0.5">{confirmDel.name}</div>
               </div>
             </div>
-          )}
-
-          {/* ── Core Responses ── */}
-          {activeTab === 'core' && (
-            <div>
-              {DIMENSIONS.map(dim => {
-                const qIdxs = CORE_QUESTIONS.map((q,i) => ({q,i})).filter(({q}) => q.section === dim)
-                return (
-                  <div key={dim} className="mb-5">
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg mb-2"
-                      style={{ background:'#d8f3dc', borderLeft:'3px solid #52b788' }}>
-                      <span className="text-[10.5px] font-bold uppercase tracking-wide text-forest-700">{dim}</span>
-                      <ScoreChip v={dimScores[dim]}/>
-                    </div>
-                    <div className="bg-white rounded-xl border border-sand-300 overflow-hidden">
-                      <table className="rt w-full">
-                        <thead>
-                          <tr>
-                            <th style={{ width:'35%' }}>Indicator</th>
-                            <th>Score</th><th>Evidence</th><th>Gap</th><th>Support</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {qIdxs.map(({ q, i }) => {
-                            const r = coreRows.find(x => x.question_index === i)
-                            return (
-                              <tr key={i}>
-                                <td className="text-[12px]">{q.q}</td>
-                                <td><ScoreChip v={r?.score ?? null}/></td>
-                                <td className="text-[11px] text-forest-400">{r?.evidence || '—'}</td>
-                                <td className="text-[11px] text-forest-400">{r?.gap || '—'}</td>
-                                <td className="text-[11px] text-forest-400">{r?.suggested_support || '—'}</td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )
-              })}
+            <p className="text-[12.5px] text-forest-600 mb-5">
+              This institution has <strong>{confirmDel.assessment_count} assessments</strong> and <strong>{confirmDel.user_count} users</strong>. All data will be permanently deleted.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmDel(null)}
+                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border"
+                style={{ borderColor:'#e8e3da', color:'#5c7566' }}>Cancel</button>
+              <button onClick={() => doDelete(confirmDel.id)}
+                className="flex-1 py-2.5 rounded-xl text-[13px] font-bold text-white"
+                style={{ background:'#dc2626' }}>Delete Permanently</button>
             </div>
-          )}
-
-          {/* ── Target Responses ── */}
-          {activeTab === 'targets' && (
-            <div>
-              {KMGBF_TARGETS.map(t => {
-                const tRows = targetRows.filter(r => r.target_num === t.num)
-                if (tRows.length === 0 && !t.indicators.some((_,i) => targetRows.find(r => r.target_num===t.num && r.indicator_index===i))) return null
-                const avg = targetScores[t.num]
-                return (
-                  <div key={t.num} className="mb-5">
-                    <div className="flex items-center gap-3 px-3 py-2 rounded-lg mb-2"
-                      style={{ background:'#dbeafe', borderLeft:'3px solid #3b82f6' }}>
-                      <span className="text-[10.5px] font-bold uppercase tracking-wide text-blue-800">T{t.num}: {t.title}</span>
-                      <ScoreChip v={avg}/>
-                    </div>
-                    <div className="bg-white rounded-xl border border-sand-300 overflow-hidden">
-                      <table className="rt w-full">
-                        <thead>
-                          <tr><th>Indicator</th><th>Score</th><th>Evidence</th><th>Gap Identified</th><th>Capacity Need</th></tr>
-                        </thead>
-                        <tbody>
-                          {t.indicators.map((ind, i) => {
-                            const r = targetRows.find(x => x.target_num === t.num && x.indicator_index === i)
-                            return (
-                              <tr key={i}>
-                                <td className="text-[12px]">{ind}</td>
-                                <td><ScoreChip v={r?.score ?? null}/></td>
-                                <td className="text-[11px] text-forest-400">{r?.evidence || '—'}</td>
-                                <td className="text-[11px] text-forest-400">{r?.gap_identified || '—'}</td>
-                                <td className="text-[11px] text-forest-400">{r?.capacity_need || '—'}</td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )
-              })}
-              {targetRows.length === 0 && (
-                <div className="card text-center py-10 text-forest-400">No target assessment data yet.</div>
-              )}
-            </div>
-          )}
-
-          {/* ── CDP ── */}
-          {activeTab === 'cdp' && (
-            <div>
-              {cdpRows.filter(r => r.action).length === 0 ? (
-                <div className="card text-center py-10 text-forest-400">No development plan actions yet.</div>
-              ) : (
-                <div className="bg-white rounded-2xl border border-sand-300 overflow-hidden">
-                  <table className="rt w-full">
-                    <thead>
-                      <tr>
-                        <th>Capacity Gap</th><th>Action</th><th>Responsible</th>
-                        <th>Timeline</th><th>Budget</th><th>Indicator</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cdpRows.filter(r => r.action).map((r, i) => (
-                        <tr key={i}>
-                          <td className="text-[11.5px]">{r.capacity_gap || '—'}</td>
-                          <td className="text-[11.5px]">{r.action || '—'}</td>
-                          <td className="text-[11px] text-forest-400">{r.institution || '—'}</td>
-                          <td>
-                            {r.timeline ? (
-                              <span className="chip text-[10px]" style={{ background:'#d8f3dc', color:'#1b4332', whiteSpace:'nowrap' }}>
-                                {r.timeline}
-                              </span>
-                            ) : '—'}
-                          </td>
-                          <td className="text-[11px] font-mono">{r.budget_usd || '—'}</td>
-                          <td className="text-[11px] text-forest-400">{r.indicator || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-        </>
+          </div>
+        </div>
       )}
     </div>
   )
