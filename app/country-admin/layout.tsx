@@ -14,11 +14,17 @@ const NAV: { href: string; Icon: any; label: string; badge?: boolean }[] = [
 
 export default function CountryAdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const [profile,     setProfile]     = useState<any>(null)
-  const [country,     setCountry]     = useState<any>(null)
+  const [profile,      setProfile]      = useState<any>(null)
+  const [country,      setCountry]      = useState<any>(null)
   const [pendingCount, setPendingCount] = useState(0)
+  const [countryParam, setCountryParam] = useState('')
 
   useEffect(() => {
+    // Capture country param from URL so we can append it to all nav links
+    const urlParams = new URLSearchParams(window.location.search)
+    const cp = urlParams.get('country')
+    if (cp) setCountryParam('?country=' + cp)
+
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { window.location.href = '/auth'; return }
       const { data: p } = await supabase
@@ -105,7 +111,7 @@ export default function CountryAdminLayout({ children }: { children: React.React
           {NAV.map(({ href, Icon, label, badge }) => {
             const active = href === '/country-admin' ? pathname === '/country-admin' : pathname.startsWith(href)
             return (
-              <Link key={href} href={href}
+              <Link key={href} href={href + countryParam}
                 className="flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium border-l-2 transition-all"
                 style={{
                   color:           active ? 'white' : 'rgba(255,255,255,.55)',
@@ -127,10 +133,10 @@ export default function CountryAdminLayout({ children }: { children: React.React
 
         {/* Footer */}
         <div className="relative px-4 py-3 border-t border-white/[0.06] space-y-1.5">
-          <Link href="/dashboard"
+          <Link href={countryParam ? '/super-admin' : '/dashboard'}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium"
             style={{ background:'rgba(82,183,136,.1)', color:'#52b788' }}>
-            <ArrowLeft size={13}/> Back to App
+            <ArrowLeft size={13}/> {countryParam ? 'Back to Super Admin' : 'Back to App'}
           </Link>
           <button onClick={signOut}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-semibold"

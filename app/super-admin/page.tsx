@@ -19,10 +19,28 @@ function scoreColor(v: number | null): string {
 
 export default function SuperAdminOverviewPage() {
   const [countries, setCountries] = useState<CountrySummary[]>([])
-  const [loading,   setLoading]   = useState(true)
+  const [loading,         setLoading]         = useState(true)
+  const [loadError,       setLoadError]       = useState(false)
+  const [selectedCountry, setSelectedCountry] = useState<{id:string;name:string;code:string}|null>(null)
+
+  useEffect(() => {
+    // Sync selected country from sessionStorage (set by the switcher)
+    // Read initial value
+    const stored = sessionStorage.getItem('sa_selected_country')
+    if (stored) { try { setSelectedCountry(JSON.parse(stored)) } catch {} }
+
+    // Listen for switcher changes (custom event fires in same tab)
+    function onCountryChanged(e: Event) {
+      const detail = (e as CustomEvent).detail
+      setSelectedCountry(detail ?? null)
+    }
+    window.addEventListener('sa-country-changed', onCountryChanged)
+    return () => window.removeEventListener('sa-country-changed', onCountryChanged)
+  }, [])
 
   useEffect(() => {
     async function load() {
+      try {
       const { data: ctrs } = await supabase
         .from('countries')
         .select('id, name, code, region, status')
@@ -54,16 +72,25 @@ export default function SuperAdminOverviewPage() {
         user_count:       um[c.id] ?? 0,
         assessment_count: am[c.id] ?? 0,
       })))
-      setLoading(false)
+      } catch (err) {
+        console.error('Load error:', err)
+        setLoadError(true)
+      } finally {
+        setLoading(false)
+      }
     }
     load()
   }, [])
 
   const active     = countries.filter(c => c.status === 'active')
   const withData   = countries.filter(c => c.inst_count > 0)
-  const totalInsts = countries.reduce((s,c) => s+c.inst_count, 0)
-  const totalUsers = countries.reduce((s,c) => s+c.user_count, 0)
-  const totalAss   = countries.reduce((s,c) => s+c.assessment_count, 0)
+  // Apply country filter from switcher
+  const visibleCountries = selectedCountry
+    ? countries.filter(c => c.id === selectedCountry.id)
+    : countries
+  const totalInsts = visibleCountries.reduce((s,c) => s+c.inst_count, 0)
+  const totalUsers = visibleCountries.reduce((s,c) => s+c.user_count, 0)
+  const totalAss   = visibleCountries.reduce((s,c) => s+c.assessment_count, 0)
 
   return (
     <div className="fade-in">
@@ -76,13 +103,26 @@ export default function SuperAdminOverviewPage() {
         </p>
       </div>
 
+      {/* Country filter banner */}
+      {selectedCountry && (
+        <div className="mb-4 flex items-center gap-3 px-4 py-2.5 rounded-xl"
+          style={{ background:'rgba(139,92,246,.1)', border:'1px solid rgba(139,92,246,.2)' }}>
+          <span className="text-[12.5px] font-semibold" style={{ color:'#7c3aed' }}>
+            🌍 Filtered to: {selectedCountry.name}
+          </span>
+          <span className="text-[11px]" style={{ color:'rgba(124,58,237,.6)' }}>
+            — Use the country switcher to change or clear the filter
+          </span>
+        </div>
+      )}
+
       {/* Stat cards */}
       <div className="grid grid-cols-4 gap-4 mb-8">
         {[
-          { label:'Active Countries',  value: active.length,  accent:'#7c3aed', Icon: Globe      },
-          { label:'Institutions',      value: totalInsts,     accent:'#52b788', Icon: Building2  },
-          { label:'Users',             value: totalUsers,     accent:'#5b8dee', Icon: Users      },
-          { label:'Assessments',       value: totalAss,       accent:'#c8860a', Icon: BarChart2  },
+          { label: selectedCountry ? selectedCountry.name : 'Active Countries', value: selectedCountry ? 1 : active.length, accent:'#7c3aed', Icon: Globe      },
+          { label:'Institutions', value: totalInsts, accent:'#52b788', Icon: Building2  },
+          { label:'Users',        value: totalUsers, accent:'#5b8dee', Icon: Users      },
+          { label:'Assessments',  value: totalAss,   accent:'#c8860a', Icon: BarChart2  },
         ].map(({ label, value, accent, Icon }) => (
           <div key={label} className="bg-white rounded-xl px-5 py-4 border border-sand-300/60"
             style={{ borderTop:`3px solid ${accent}`, boxShadow:'0 2px 12px rgba(15,45,28,.08)' }}>
@@ -97,7 +137,14 @@ export default function SuperAdminOverviewPage() {
       </div>
 
       {/* Countries with data */}
-      {loading ? (
+      {loadError ? (
+        <div className="card text-center py-12">
+          <div className="text-2xl mb-2">⚠️</div>
+          <div className="font-bold text-forest-700 mb-2">Failed to load data</div>
+          <p className="text-[13px] text-forest-400 mb-4">There was a problem connecting to the database.</p>
+          <button onClick={() => { setLoadError(false); setLoading(true); load() }} className="btn btn-primary">Try again</button>
+        </div>
+      ) : loading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 size={24} className="animate-spin" style={{ color:'#52b788' }}/>
         </div>
@@ -106,7 +153,7 @@ export default function SuperAdminOverviewPage() {
           {withData.length > 0 && (
             <div className="mb-6">
               <h3 className="text-[14px] font-bold text-forest-700 mb-3">
-                Countries with Active Data ({withData.length})
+                Countries with Active Data ({(selectedCountry ? withData.filter(c=>c.id===selectedCountry.id) : withData).length})
               </h3>
               <div className="grid grid-cols-3 gap-4">
                 {withData.sort((a,b) => b.assessment_count - a.assessment_count).map(c => (
@@ -151,7 +198,7 @@ export default function SuperAdminOverviewPage() {
           {/* All countries table */}
           <div>
             <h3 className="text-[14px] font-bold text-forest-700 mb-3">
-              All Countries ({countries.length})
+              All Countries ({visibleCountries.length}{selectedCountry ? ` — filtered to ${selectedCountry.name}` : ""})
             </h3>
             <div className="bg-white rounded-2xl border border-sand-300 overflow-hidden">
               <table className="rt w-full">
@@ -163,7 +210,7 @@ export default function SuperAdminOverviewPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {countries.map(c => (
+                  {visibleCountries.map(c => (
                     <tr key={c.id}>
                       <td>
                         <div className="flex items-center gap-2">

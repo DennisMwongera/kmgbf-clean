@@ -158,9 +158,9 @@ function SectionHeader({ icon: Icon, title, children }: { icon: React.ElementTyp
 }
 
 // ─── Main page ─────────────────────────────────────────────────
-export default function AdminReportsPage() {
-  const [countryId,    setCountryId]    = useState<string | null>(null)
-  const [countryName,  setCountryName]  = useState('')
+export function NationalReportView({ countryId: propCountryId, countryName: propCountryName }: { countryId?: string; countryName?: string }) {
+  const [countryId,    setCountryId]    = useState<string | null>(propCountryId ?? null)
+  const [countryName,  setCountryName]  = useState(propCountryName ?? '')
   const [allReports,   setAllReports]   = useState<InstitutionReport[]>([])
   const [national,     setNational]     = useState<NationalReport | null>(null)
   const [loading,      setLoading]      = useState(true)
@@ -183,6 +183,17 @@ export default function AdminReportsPage() {
   const date             = new Date().toISOString().slice(0,10)
 
   useEffect(() => {
+    // If countryId passed as prop (super admin viewing a country), use it directly
+    if (propCountryId) {
+      loadAllInstitutionReports(propCountryId).then(reports => {
+        setAllReports(reports)
+        setSelectedIds(new Set(reports.map(r => r.institution.id)))
+        setNational(buildNationalReport(reports))
+        setLoading(false)
+      })
+      return
+    }
+    // Otherwise resolve from user profile (country admin flow)
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
       const { data: p } = await supabase
@@ -202,7 +213,7 @@ export default function AdminReportsPage() {
         setLoading(false)
       })
     })
-  }, [])
+  }, [propCountryId])
 
   function toggleInstitution(id: string) {
     setSelectedIds(prev => {
@@ -225,7 +236,7 @@ export default function AdminReportsPage() {
 
   async function loadCdp(instIds?: string[]) {
     setCdpLoading(true)
-    const rows = await loadNationalCdpRows(instIds?.length ? instIds : undefined, countryId ?? undefined)
+    const rows = await loadNationalCdpRows(instIds?.length ? instIds : undefined, propCountryId ?? countryId ?? undefined)
     setCdpRows(rows)
     setCdpLoading(false)
     setCdpLoaded(true)
@@ -378,7 +389,7 @@ export default function AdminReportsPage() {
       <div className="flex items-start justify-between mb-7 flex-wrap gap-4">
         <div>
           <h2 style={{ fontFamily:'var(--font-display)', fontSize:28, fontWeight:700, color:'#0f2d1c' }}>
-            National Reports
+            {countryName ? countryName + ' — National Report' : 'National Reports'}
           </h2>
           <p className="text-[13.5px] text-forest-400 mt-1">
             Aggregate capacity readiness across all {national.institutions.length} institutions.
@@ -1241,4 +1252,10 @@ export default function AdminReportsPage() {
 
     </div>
   )
+}
+
+
+// Default export for use as a standalone page (country admin route)
+export default function CountryAdminReportsPage() {
+  return <NationalReportView />
 }
