@@ -59,9 +59,12 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
     setSelectedCountry(c)
     setSwitcherOpen(false)
     setFilterQuery('')
-    // Persist so it survives navigation
     sessionStorage.setItem('sa_selected_country', JSON.stringify(c))
-    window.location.href = `/super-admin/countries/${c.id}`
+  }
+
+  function goToCountryAdmin() {
+    if (!selectedCountry) return
+    window.location.href = `/country-admin?country=${selectedCountry.id}`
   }
 
   useEffect(() => {

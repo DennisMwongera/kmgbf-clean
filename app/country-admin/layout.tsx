@@ -30,9 +30,13 @@ export default function CountryAdminLayout({ children }: { children: React.React
         window.location.href = '/dashboard'; return
       }
       setProfile(p)
-      if (p.country_id) {
+      // Resolve effective country — use profile.country_id or super_admin sessionStorage selection
+      // URL param takes priority (set by super admin country switcher)
+      const urlParams = new URLSearchParams(window.location.search)
+      let cid = urlParams.get('country') || p.country_id || null
+      if (cid) {
         const { data: c } = await supabase
-          .from('countries').select('id, name, code').eq('id', p.country_id).single()
+          .from('countries').select('id, name, code').eq('id', cid).single()
         setCountry(c)
         // Load pending users count
         const { count } = await supabase

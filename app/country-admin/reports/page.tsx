@@ -186,13 +186,16 @@ export default function AdminReportsPage() {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
       const { data: p } = await supabase
-        .from('user_profiles').select('country_id').eq('id', user.id).single()
-      const { data: c } = p?.country_id
-        ? await supabase.from('countries').select('name').eq('id', p.country_id).single()
+        .from('user_profiles').select('country_id, role').eq('id', user.id).single()
+      const urlParams = new URLSearchParams(window.location.search)
+      const urlCountry = urlParams.get('country')
+      let cid = urlCountry || p?.country_id || null
+      const { data: c } = cid
+        ? await supabase.from('countries').select('name').eq('id', cid).single()
         : { data: null }
-      setCountryId(p?.country_id ?? null)
+      setCountryId(cid)
       setCountryName(c?.name ?? '')
-      loadAllInstitutionReports(p?.country_id ?? undefined).then(reports => {
+      loadAllInstitutionReports(cid ?? undefined).then(reports => {
         setAllReports(reports)
         setSelectedIds(new Set(reports.map(r => r.institution.id)))
         setNational(buildNationalReport(reports))
@@ -223,10 +226,6 @@ export default function AdminReportsPage() {
   async function loadCdp(instIds?: string[]) {
     setCdpLoading(true)
     const rows = await loadNationalCdpRows(instIds?.length ? instIds : undefined, countryId ?? undefined)
-    // Debug: confirm id is populated
-    if (rows.length > 0) {
-      console.log('[CDP] First row id:', rows[0].id, '| assessment_id:', rows[0].assessment_id)
-    }
     setCdpRows(rows)
     setCdpLoading(false)
     setCdpLoaded(true)
