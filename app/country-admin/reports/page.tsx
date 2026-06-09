@@ -110,28 +110,149 @@ function ScoreCell({ v }: { v: number | null }) {
   )
 }
 
-async function exportNationalXLSX(national: NationalReport) {
+async function exportNationalXLSX(national: NationalReport, cdpRows?: NationalCdpRow[]) {
   const XLSX = await import('xlsx')
   const wb   = XLSX.utils.book_new()
+  const date = new Date().toLocaleDateString()
+
+  const withData    = national.institutions.filter(r => r.overallScore !== null)
+  const withoutData = national.institutions.filter(r => r.overallScore === null)
+
+  // ── Sheet 1: National Summary ──────────────────────────────────────────────
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['KMGBF National Capacity Assessment Report'],
-    ['Generated', national.generatedAt],
-    ['Institutions assessed', national.institutions.filter(r => r.overallScore !== null).length],
+    ['KMGBF National Capacity Needs Assessment Report'],
+    ['Generated', date],
+    ['Institutions assessed', withData.length],
+    ['Institutions with no data', withoutData.length],
     [],
     ['NATIONAL AVERAGE SCORES BY DIMENSION'],
     ['Dimension', 'Average Score', 'Interpretation'],
     ...DIMENSIONS.map(d => [d, national.nationalDimScores[d]?.toFixed(2) ?? '—', interpret(national.nationalDimScores[d])]),
     [],
     ['Overall National Score', national.nationalOverall?.toFixed(2) ?? '—'],
+    [],
+    ['TARGET READINESS — NATIONAL AVERAGES'],
+    ['Target #', 'Target Title', 'National Avg'],
+    ...KMGBF_TARGETS.map(t => [`T${t.num}`, t.title, national.nationalTargets[t.num]?.toFixed(2) ?? '—']),
   ]), 'National_Summary')
+
+  // ── Sheet 2: Institution Comparison ───────────────────────────────────────
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Institution', 'Type', 'Level', 'Overall', ...DIMENSIONS, 'Answered/50', 'Status'],
-    ...national.institutions.map(r => [r.institution.name, r.institution.type??'', r.institution.level??'', r.overallScore?.toFixed(2)??'—', ...DIMENSIONS.map(d => r.dimScores[d]?.toFixed(2)??'—'), r.answeredCount, r.assessment?.status??'No assessment']),
+    ['Institution', 'Type', 'Level', 'Overall Score', ...DIMENSIONS, 'Answered/50', 'Status', 'Last Updated'],
+    ...national.institutions.map(r => [
+      r.institution.name,
+      r.institution.type ?? '',
+      r.institution.level ?? '',
+      r.overallScore?.toFixed(2) ?? '—',
+      ...DIMENSIONS.map(d => r.dimScores[d]?.toFixed(2) ?? '—'),
+      r.answeredCount,
+      r.assessment?.status ?? 'No assessment',
+      r.assessment?.updated_at ? new Date(r.assessment.updated_at).toLocaleDateString() : '—',
+    ]),
   ]), 'Institution_Comparison')
+
+  // ── Sheet 3: Target Readiness ──────────────────────────────────────────────
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Target', 'Target Title', 'National Avg', ...national.institutions.map(r => r.institution.name)],
-    ...KMGBF_TARGETS.map(t => [`T${t.num}`, t.title, national.nationalTargets[t.num]?.toFixed(2)??'—', ...national.institutions.map(r => r.targetScores[t.num]?.toFixed(2)??'—')]),
+    ['Target #', 'Target Title', 'National Avg', ...national.institutions.map(r => r.institution.name)],
+    ...KMGBF_TARGETS.map(t => [
+      `T${t.num}`,
+      t.title,
+      national.nationalTargets[t.num]?.toFixed(2) ?? '—',
+      ...national.institutions.map(r => r.targetScores[t.num]?.toFixed(2) ?? '—'),
+    ]),
   ]), 'Target_Readiness')
+
+  // ── Sheet 4: Dimension Scores per Institution (transposed) ────────────────
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Dimension', ...withData.map(r => r.institution.name)],
+    ...DIMENSIONS.map(d => [
+      d,
+      ...withData.map(r => r.dimScores[d]?.toFixed(2) ?? '—'),
+    ]),
+    [],
+    ['Overall', ...withData.map(r => r.overallScore?.toFixed(2) ?? '—')],
+  ]), 'Dimension_Matrix')
+
+  // ── Sheet 5: CDP — Core Capacity Actions ─────────────────────────────────
+  if (cdpRows && cdpRows.length > 0) {
+    const isTargetRow = (r: NationalCdpRow) =>
+      r.source === 'target' || /^T\d+:/.test(r.capacity_gap ?? '') || (r.target_num !== null && r.target_num > 0)
+
+    const coreRows   = cdpRows.filter(r => !isTargetRow(r))
+    const targetRows = cdpRows.filter(r =>  isTargetRow(r))
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['Institution', 'Dimension', 'Capacity Gap', 'Action', 'Responsible Institution', 'Timeline', 'Budget (USD)', 'Indicator', 'Collaboration', 'Assessment Status'],
+      ...coreRows.map(r => [
+        r.institution_name,
+        r.dimension ?? 'Unclassified',
+        r.capacity_gap ?? '',
+        r.action ?? '',
+        r.institution ?? '',
+        r.timeline ?? '',
+        r.budget_usd ?? '',
+        r.indicator ?? '',
+        r.collaboration ?? '',
+        r.assessment_status ?? '',
+      ]),
+    ]), 'CDP_Core_Capacity')
+
+    // ── Sheet 6: CDP — Target Action Plans ──────────────────────────────────
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['Institution', 'Target #', 'Target Title', 'Capacity Gap', 'Action', 'Responsible Institution', 'Timeline', 'Budget (USD)', 'Capacity Need / Indicator', 'Assessment Status'],
+      ...targetRows
+        .sort((a,b) => (a.target_num??0) - (b.target_num??0))
+        .map(r => [
+          r.institution_name,
+          r.target_num ? `T${r.target_num}` : '—',
+          r.target_title ?? '—',
+          r.capacity_gap ?? '',
+          r.action ?? '',
+          r.institution ?? '',
+          r.timeline ?? '',
+          r.budget_usd ?? '',
+          r.indicator ?? '',
+          r.assessment_status ?? '',
+        ]),
+    ]), 'CDP_Target_Plans')
+
+    // ── Sheet 7: CDP — Combined (all actions) ──────────────────────────────
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['Institution', 'Type', 'Dimension / Target', 'Capacity Gap', 'Action', 'Responsible', 'Timeline', 'Budget (USD)', 'Indicator', 'Status'],
+      ...cdpRows.map(r => [
+        r.institution_name,
+        isTargetRow(r) ? `Target T${r.target_num ?? '?'}` : 'Core Capacity',
+        isTargetRow(r) ? (r.target_title ?? `T${r.target_num}`) : (r.dimension ?? 'Unclassified'),
+        r.capacity_gap ?? '',
+        r.action ?? '',
+        r.institution ?? '',
+        r.timeline ?? '',
+        r.budget_usd ?? '',
+        r.indicator ?? '',
+        r.assessment_status ?? '',
+      ]),
+    ]), 'CDP_All_Actions')
+  } else {
+    // If CDP not yet loaded, add placeholder sheet
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['Note: Load the Development Plans tab first, then re-export to include CDP data.'],
+    ]), 'CDP_Core_Capacity')
+  }
+
+  // ── Sheet 8: Institution Profiles ─────────────────────────────────────────
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Institution', 'Type', 'Level', 'Overall Score', 'Answered Indicators', 'Assessment Status', 'Last Updated'],
+    ...national.institutions.map(r => [
+      r.institution.name,
+      r.institution.type ?? '',
+      r.institution.level ?? '',
+      r.overallScore?.toFixed(2) ?? 'Not assessed',
+      r.answeredCount,
+      r.assessment?.status ?? 'Not started',
+      r.assessment?.updated_at ? new Date(r.assessment.updated_at).toLocaleDateString() : '—',
+    ]),
+  ]), 'Institution_Profiles')
+
   XLSX.writeFile(wb, `KMGBF_National_Report_${new Date().toISOString().slice(0,10)}.xlsx`)
 }
 
@@ -351,7 +472,7 @@ export function NationalReportView({ countryId: propCountryId, countryName: prop
   async function handleExport() {
     if (!national) return
     setExporting(true)
-    await exportNationalXLSX(national)
+    await exportNationalXLSX(national, cdpRows.length > 0 ? cdpRows : undefined)
     setExporting(false)
   }
 
