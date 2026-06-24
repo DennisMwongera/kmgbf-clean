@@ -21,6 +21,90 @@ function hex2rgb(hex: string): [number, number, number] {
   return [r, g, b]
 }
 
+// ─── Programmatic radar chart using jsPDF drawing primitives ──
+function drawRadar(
+  doc: any,
+  cx: number, cy: number, radius: number,
+  scores: Record<string, number | null>,
+  dims: string[],
+  maxVal = 5
+) {
+  const n     = dims.length
+  const step  = (2 * Math.PI) / n
+  const start = -Math.PI / 2  // start at top
+
+  // Grid rings (5 levels)
+  for (let level = 1; level <= maxVal; level++) {
+    const r = (radius * level) / maxVal
+    doc.setDrawColor(220, 220, 220)
+    doc.setLineWidth(level === maxVal ? 0.4 : 0.2)
+    // Draw polygon ring
+    const pts: [number,number][] = dims.map((_,i) => [
+      cx + r * Math.cos(start + i * step),
+      cy + r * Math.sin(start + i * step),
+    ])
+    pts.forEach(([x,y], i) => {
+      const [nx,ny] = pts[(i+1) % pts.length]
+      doc.line(x, y, nx, ny)
+    })
+  }
+
+  // Axis lines + labels
+  dims.forEach((dim, i) => {
+    const angle = start + i * step
+    const ex    = cx + radius * Math.cos(angle)
+    const ey    = cy + radius * Math.sin(angle)
+    doc.setDrawColor(200, 215, 205)
+    doc.setLineWidth(0.2)
+    doc.line(cx, cy, ex, ey)
+
+    // Label — position slightly beyond the ring
+    const lx = cx + (radius + 7) * Math.cos(angle)
+    const ly = cy + (radius + 7) * Math.sin(angle)
+    const short = dim.replace(' Capacity','').replace(' and ',' & ').replace('Knowledge and Information Management','KIM')
+    doc.setFontSize(5.5).setTextColor(60,90,70).setFont('helvetica','normal')
+    doc.text(short, lx, ly, { align:'center' })
+  })
+
+  // Score polygon fill
+  const scorePts: [number,number][] = dims.map((dim, i) => {
+    const v   = scores[dim]
+    const val = (v !== null && v > 0) ? v : 0
+    const r   = (radius * Math.min(val, maxVal)) / maxVal
+    return [cx + r * Math.cos(start + i * step), cy + r * Math.sin(start + i * step)]
+  })
+
+  // Fill polygon
+  doc.setFillColor(82, 183, 136)
+  doc.setGState(doc.GState({ opacity: 0.25 }))
+  scorePts.forEach(([x,y], i) => {
+    const [nx,ny] = scorePts[(i+1) % scorePts.length]
+    if (i === 0) doc.lines([[nx-x, ny-y]], x, y, [1, 1], 'F', true)
+  })
+  // Proper filled polygon via moveTo / lineTo
+  const pathStr = scorePts.map(([x,y], i) => `${i===0?'M':'L'} ${x.toFixed(2)} ${y.toFixed(2)}`).join(' ') + ' Z'
+  try {
+    doc.setFillColor(82, 183, 136)
+    doc.setGState(doc.GState({ opacity: 0.2 }))
+    ;(doc as any).path(pathStr, 'F')
+  } catch {}
+
+  // Outline stroke
+  doc.setDrawColor(45, 106, 79)
+  doc.setLineWidth(0.6)
+  doc.setGState(doc.GState({ opacity: 1 }))
+  scorePts.forEach(([x,y], i) => {
+    const [nx,ny] = scorePts[(i+1) % scorePts.length]
+    doc.line(x, y, nx, ny)
+  })
+
+  // Score dots
+  scorePts.forEach(([x,y]) => {
+    doc.setFillColor(45, 106, 79)
+    doc.circle(x, y, 1, 'F')
+  })
+}
+
 // ─── PDF builder ─────────────────────────────────────────────
 export async function exportNationalPDF(
   national: NationalReport,
@@ -197,23 +281,113 @@ export async function exportNationalPDF(
   })
 
   // ════════════════════════════════════════════════════════════
-  // PAGE 3 — RADAR CHART
+  // PAGE 3 — NATIONAL CAPACITY RADAR
   // ════════════════════════════════════════════════════════════
-  if (radarCanvas) {
-    addPage()
-    doc.setFontSize(16).setTextColor(15,45,28).setFont('helvetica','bold')
-    doc.text('National Capacity Radar', ML, y)
-    y += 6
-    doc.setFontSize(8.5).setTextColor(100,130,110).setFont('helvetica','normal')
-    doc.text(`Average across ${withData.length} institutions with assessment data`, ML, y)
-    y += 8
+  addPage()
+  doc.setFontSize(16).setTextColor(15,45,28).setFont('helvetica','bold')
+  doc.text('National Capacity Radar', ML, y)
+  y += 6
+  doc.setFontSize(8.5).setTextColor(100,130,110).setFont('helvetica','normal')
+  doc.text(`Average across ${withData.length} institutions with assessment data`, ML, y)
+  y += 10
 
+  if (radarCanvas) {
+    // Use the canvas image if available
     const imgData = radarCanvas.toDataURL('image/png')
-    const maxW    = CW
-    const maxH    = 130
-    doc.addImage(imgData, 'PNG', ML, y, maxW, maxH)
-    y += maxH + 10
+    const sz = 120
+    doc.addImage(imgData, 'PNG', ML + (CW-sz)/2, y, sz, sz)
+    y += sz + 8
+  } else {
+    // Draw radar programmatically
+    const cx = ML + CW/2
+    const cy = y + 65
+    drawRadar(doc, cx, cy, 50, national.nationalDimScores, DIMENSIONS)
+    y += 140
   }
+
+  // National dimension scores table below radar
+  sectionHeader('National Average — Dimension Scores')
+  DIMENSIONS.forEach((dim, i) => {
+    checkY(8)
+    const v   = national.nationalDimScores[dim]
+    const bg  = i % 2 === 0 ? '#f6f3ee' : '#ffffff'
+    const [br,bg2,bb] = hex2rgb(bg)
+    doc.setFillColor(br,bg2,bb)
+    doc.rect(ML, y, CW, 7, 'F')
+    doc.setFontSize(8).setTextColor(27,67,50).setFont('helvetica','normal')
+    doc.text(dim, ML+2, y+5)
+    const barX = ML+90; const barW = CW-90-30; const barH = 3
+    doc.setFillColor(232,227,218)
+    doc.roundedRect(barX, y+2, barW, barH, 0.8, 0.8, 'F')
+    if (v !== null && v > 0) {
+      const [fr,fg,fb] = hex2rgb(scoreColor(v))
+      doc.setFillColor(fr,fg,fb)
+      doc.roundedRect(barX, y+2, Math.max(2,(v/5)*barW), barH, 0.8, 0.8, 'F')
+    }
+    doc.setFontSize(8).setTextColor(...hex2rgb(scoreColor(v))).setFont('helvetica','bold')
+    doc.text(v !== null ? v.toFixed(2) : '—', ML+CW-2, y+5, { align:'right' })
+    y += 7
+  })
+
+  // ════════════════════════════════════════════════════════════
+  // PAGE 3b — PER-INSTITUTION RADAR CHARTS (4 per page)
+  // ════════════════════════════════════════════════════════════
+  const RADARS_PER_PAGE = 4
+  const radarW = (CW - 10) / 2   // 2 columns
+  const radarH = 80
+  const radarPad = 5
+
+  withData.forEach((inst, idx) => {
+    const posOnPage = idx % RADARS_PER_PAGE
+
+    if (posOnPage === 0) {
+      addPage()
+      doc.setFontSize(14).setTextColor(15,45,28).setFont('helvetica','bold')
+      doc.text('Institution Capacity Radars', ML, y)
+      y += 8
+    }
+
+    const col    = posOnPage % 2          // 0 = left, 1 = right
+    const row    = Math.floor(posOnPage / 2)  // 0 = top, 1 = bottom
+    const baseX  = ML + col * (radarW + radarPad)
+    const baseY  = y + row * (radarH + 10)
+
+    // Institution card background
+    doc.setFillColor(246,243,238)
+    doc.roundedRect(baseX, baseY, radarW, radarH, 2, 2, 'F')
+    doc.setDrawColor(216,243,220)
+    doc.setLineWidth(0.3)
+    doc.roundedRect(baseX, baseY, radarW, radarH, 2, 2, 'S')
+
+    // Institution name — wrapped
+    doc.setFontSize(6.5).setTextColor(27,67,50).setFont('helvetica','bold')
+    const nameLines = doc.splitTextToSize(inst.institution.name, radarW - 4)
+    const maxNameLines = 2
+    const displayLines = nameLines.slice(0, maxNameLines)
+    if (nameLines.length > maxNameLines) displayLines[maxNameLines-1] = displayLines[maxNameLines-1].replace(/\s\S+$/, '…')
+    displayLines.forEach((line: string, li: number) => {
+      doc.text(line, baseX + radarW/2, baseY + 5 + li * 4, { align:'center' })
+    })
+
+    // Overall score chip
+    const ov = inst.overallScore
+    doc.setFontSize(8).setTextColor(...hex2rgb(scoreColor(ov))).setFont('helvetica','bold')
+    doc.text(ov !== null ? ov.toFixed(2) : '—', baseX + radarW - 3, baseY + 5, { align:'right' })
+
+    // Draw radar
+    const rcx = baseX + radarW / 2
+    const rcy = baseY + displayLines.length * 4 + 10 + 26
+    drawRadar(doc, rcx, rcy, 22, inst.dimScores, DIMENSIONS)
+
+    // If last on page, reset y for next group header
+    if (posOnPage === RADARS_PER_PAGE - 1 || idx === withData.length - 1) {
+      if (posOnPage < 2) {
+        y += radarH + 14  // only one row used
+      } else {
+        y += (radarH + 10) * 2 + 4  // two rows used
+      }
+    }
+  })
 
   // ════════════════════════════════════════════════════════════
   // PAGE 4 — INSTITUTION COMPARISON TABLE (LANDSCAPE)
