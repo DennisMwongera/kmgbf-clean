@@ -46,15 +46,15 @@ function drawRadar(
       const [nx,ny] = pts[(i+1) % pts.length]
       doc.line(x, y, nx, ny)
     })
-    // Draw score number on the top axis (level label)
-    const labelX = cx + r * Math.cos(start) + 0.5
-    const labelY = cy + r * Math.sin(start) - 1
-    // White backdrop pill
+    // Draw score number on the top axis
+    const labelX = cx + r * Math.cos(start)
+    const labelY = cy + r * Math.sin(start) - 1.5
+    // White backdrop
     doc.setFillColor(255, 255, 255)
-    doc.roundedRect(labelX - 2, labelY - 3, 6, 4, 0.8, 0.8, 'F')
-    // Number
-    doc.setFontSize(5).setTextColor(45, 106, 79).setFont('helvetica', 'bold')
-    doc.text(String(level), labelX + 1, labelY, { align: 'center' })
+    doc.rect(labelX - 1.8, labelY - 2.8, 3.6, 3.5, 'F')
+    // Number in dark green
+    doc.setFontSize(5.5).setTextColor(45, 106, 79).setFont('helvetica', 'bold')
+    doc.text(String(level), labelX, labelY, { align: 'center' })
   }
 
   // Axis lines + labels
@@ -74,33 +74,33 @@ function drawRadar(
     doc.text(short, lx, ly, { align:'center' })
   })
 
-  // Score polygon fill
+  // Score polygon — use lines with fill
   const scorePts: [number,number][] = dims.map((dim, i) => {
     const v   = scores[dim]
-    const val = (v !== null && v > 0) ? v : 0
-    const r   = (radius * Math.min(val, maxVal)) / maxVal
+    const val = (v !== null && v > 0) ? Math.min(v, maxVal) : 0
+    const r   = (radius * val) / maxVal
     return [cx + r * Math.cos(start + i * step), cy + r * Math.sin(start + i * step)]
   })
 
-  // Fill polygon
-  doc.setFillColor(82, 183, 136)
-  doc.setGState(doc.GState({ opacity: 0.25 }))
-  scorePts.forEach(([x,y], i) => {
-    const [nx,ny] = scorePts[(i+1) % scorePts.length]
-    if (i === 0) doc.lines([[nx-x, ny-y]], x, y, [1, 1], 'F', true)
-  })
-  // Proper filled polygon via moveTo / lineTo
-  const pathStr = scorePts.map(([x,y], i) => `${i===0?'M':'L'} ${x.toFixed(2)} ${y.toFixed(2)}`).join(' ') + ' Z'
-  try {
-    doc.setFillColor(82, 183, 136)
-    doc.setGState(doc.GState({ opacity: 0.2 }))
-    ;(doc as any).path(pathStr, 'F')
-  } catch {}
-
-  // Outline stroke
+  // Draw filled polygon using triangle fan from centre
+  const [fr,fg,fb] = [82, 183, 136]
+  doc.setFillColor(fr, fg, fb)
   doc.setDrawColor(45, 106, 79)
-  doc.setLineWidth(0.6)
+  doc.setLineWidth(0.8)
+
+  // jsPDF triangle method: draw as sequence of filled triangles from centre
+  scorePts.forEach(([x1,y1], i) => {
+    const [x2,y2] = scorePts[(i+1) % scorePts.length]
+    // Fill triangle
+    doc.setFillColor(82, 183, 136)
+    doc.setGState(doc.GState({ opacity: 0.25 }))
+    doc.triangle(cx, cy, x1, y1, x2, y2, 'F')
+  })
   doc.setGState(doc.GState({ opacity: 1 }))
+
+  // Outline stroke over the fill
+  doc.setDrawColor(45, 106, 79)
+  doc.setLineWidth(0.9)
   scorePts.forEach(([x,y], i) => {
     const [nx,ny] = scorePts[(i+1) % scorePts.length]
     doc.line(x, y, nx, ny)
@@ -109,7 +109,8 @@ function drawRadar(
   // Score dots
   scorePts.forEach(([x,y]) => {
     doc.setFillColor(45, 106, 79)
-    doc.circle(x, y, 1, 'F')
+    doc.setGState(doc.GState({ opacity: 1 }))
+    doc.circle(x, y, 1.2, 'F')
   })
 }
 
