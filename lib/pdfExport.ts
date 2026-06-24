@@ -33,12 +33,11 @@ function drawRadar(
   const step  = (2 * Math.PI) / n
   const start = -Math.PI / 2  // start at top
 
-  // Grid rings (5 levels)
+  // Grid rings (5 levels) with score numbers
   for (let level = 1; level <= maxVal; level++) {
     const r = (radius * level) / maxVal
     doc.setDrawColor(220, 220, 220)
     doc.setLineWidth(level === maxVal ? 0.4 : 0.2)
-    // Draw polygon ring
     const pts: [number,number][] = dims.map((_,i) => [
       cx + r * Math.cos(start + i * step),
       cy + r * Math.sin(start + i * step),
@@ -47,6 +46,15 @@ function drawRadar(
       const [nx,ny] = pts[(i+1) % pts.length]
       doc.line(x, y, nx, ny)
     })
+    // Draw score number on the top axis (level label)
+    const labelX = cx + r * Math.cos(start) + 0.5
+    const labelY = cy + r * Math.sin(start) - 1
+    // White backdrop pill
+    doc.setFillColor(255, 255, 255)
+    doc.roundedRect(labelX - 2, labelY - 3, 6, 4, 0.8, 0.8, 'F')
+    // Number
+    doc.setFontSize(5).setTextColor(45, 106, 79).setFont('helvetica', 'bold')
+    doc.text(String(level), labelX + 1, labelY, { align: 'center' })
   }
 
   // Axis lines + labels
