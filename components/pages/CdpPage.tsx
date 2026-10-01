@@ -1,6 +1,8 @@
 'use client'
+import AiCdpRecommender from '@/components/ai/AiCdpRecommender'
 import { useState, useCallback, useEffect, memo } from 'react'
 import { useStore } from '@/lib/store'
+import { supabase } from '@/lib/supabase/client'
 import { type CdpRow } from '@/lib/constants'
 import { DIMENSIONS } from '@/lib/constants'
 import { getT } from '@/lib/i18n'
@@ -84,17 +86,18 @@ const ActionRow = memo(function ActionRow({ idx, initialRow, onUpdate, onRemove,
 })
 
 // ─── Gap subsection ─────────────────────────────────────────────
-function GapSubsection({ gap, cdpRows, allIndices, dim, onUpdate, onRemove, onAddAction, t, readOnly, accentColor }: {
-  gap: string; dim?: string; accentColor: string
+function GapSubsection({ gap, cdpRows, allIndices, dim, onUpdate, onRemove, onAddAction, t, readOnly, accentColor, forcedSource, tNum, countryName, institutionName }: {
+  gap: string; dim?: string; accentColor: string; forcedSource?: 'core' | 'target'; tNum?: number
+  countryName?: string; institutionName?: string
   cdpRows: CdpRow[]; allIndices: number[]
   onUpdate: (idx: number, field: string, val: string) => void
   onRemove: (idx: number) => void
   onAddAction: (gap: string, source: 'core' | 'target', dimension?: string) => void
-  dim?: string
   t: ReturnType<typeof getT>
   readOnly?: boolean
 }) {
-  const source: 'core' | 'target' = cdpRows[0]?.source === 'target' ? 'target' : 'core'
+  // forcedSource ensures target gaps always save as 'target' even on first action
+  const source: 'core' | 'target' = forcedSource ?? (cdpRows[0]?.source === 'target' ? 'target' : 'core')
 
   const paired: { row: CdpRow; globalIdx: number }[] = []
   cdpRows.forEach((r, localI) => {
@@ -110,13 +113,35 @@ function GapSubsection({ gap, cdpRows, allIndices, dim, onUpdate, onRemove, onAd
           <span className="text-[12.5px] font-semibold text-forest-700">{gap}</span>
           <span className="text-[10px] text-forest-400">{paired.length} action{paired.length!==1?'s':''}</span>
         </div>
-        {!readOnly && (
-          <button className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
-            style={{ background:`${accentColor}20`, color: accentColor }}
-            onClick={() => onAddAction(gap, source, dim)}>
-            <Plus size={11}/> Add action
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {!readOnly && paired.length > 0 && (
+            <AiCdpRecommender
+              capacityGap={gap}
+              dimension={dim}
+              targetNum={tNum}
+              countryName={countryName}
+              institutionName={institutionName}
+              onApply={rec => {
+                // Apply to the first action row of this gap
+                const firstIdx = paired[0]?.globalIdx
+                if (firstIdx === undefined) return
+                if (rec.action)        onUpdate(firstIdx, 'action',        rec.action)
+                if (rec.institution)   onUpdate(firstIdx, 'institution',   rec.institution)
+                if (rec.timeline)      onUpdate(firstIdx, 'timeline',      rec.timeline)
+                if (rec.budget)        onUpdate(firstIdx, 'budget',        rec.budget)
+                if (rec.indicator)     onUpdate(firstIdx, 'indicator',     rec.indicator)
+                if (rec.collaboration) onUpdate(firstIdx, 'collaboration', rec.collaboration)
+              }}
+            />
+          )}
+          {!readOnly && (
+            <button className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
+              style={{ background:`${accentColor}20`, color: accentColor }}
+              onClick={() => onAddAction(gap, source, dim, tNum)}>
+              <Plus size={11}/> Add action
+            </button>
+          )}
+        </div>
       </div>
       <div className="px-3 pt-2 pb-3">
         {paired.length === 0 ? (
@@ -137,14 +162,15 @@ function GapSubsection({ gap, cdpRows, allIndices, dim, onUpdate, onRemove, onAd
 }
 
 // ─── Dimension section ─────────────────────────────────────────
-function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, onAddAction, t, readOnly, accentColor, top3 }: {
+function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, onAddAction, t, readOnly, accentColor, top3, countryName, institutionName }: {
   dim: string; gapsInDim: string[]; accentColor: string; top3?: Set<string>
   cdpRows: CdpRow[]; allIndices: number[]
   onUpdate: (idx: number, field: string, val: string) => void
   onRemove: (idx: number) => void
-  onAddAction: (gap: string, source: 'core' | 'target', dimension?: string) => void
+  onAddAction: (gap: string, source: 'core' | 'target', dimension?: string, tNum?: number) => void
   t: ReturnType<typeof getT>
   readOnly?: boolean
+  countryName?: string; institutionName?: string
 }) {
   const [showAll, setShowAll]  = useState(false)
   const shortDim               = dim.replace(' Capacity','').replace(' and ','/')
@@ -179,7 +205,8 @@ function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, o
             )}
             <GapSubsection gap={gap} dim={dim} accentColor={accentColor}
               cdpRows={cdpRows} allIndices={allIndices}
-              onUpdate={onUpdate} onRemove={onRemove} onAddAction={onAddAction} t={t} readOnly={readOnly}/>
+              onUpdate={onUpdate} onRemove={onRemove} onAddAction={onAddAction} t={t} readOnly={readOnly}
+              countryName={countryName} institutionName={institutionName}/>
           </div>
         ))}
         {hasMore && (
@@ -197,15 +224,16 @@ function DimSection({ dim, gapsInDim, cdpRows, allIndices, onUpdate, onRemove, o
 
 
 // ─── Target section with show more ────────────────────────────
-function TargetSection({ tNum, group, rows, indices, onUpdate, onRemove, onAddAction, t, readOnly }: {
+function TargetSection({ tNum, group, rows, indices, onUpdate, onRemove, onAddAction, t, readOnly, countryName, institutionName }: {
   tNum: number
   group: { title: string; gaps: string[]; avgScore: number | null; top3: Set<string> }
   rows: CdpRow[]; indices: number[]
   onUpdate: (idx: number, field: string, val: string) => void
   onRemove: (idx: number) => void
-  onAddAction: (gap: string, source: 'core' | 'target') => void
+  onAddAction: (gap: string, source: 'core' | 'target', dimension?: string, tNum?: number) => void
   t: ReturnType<typeof getT>
   readOnly?: boolean
+  countryName?: string; institutionName?: string
 }) {
   const [showAll, setShowAll] = useState(false)
   const top3Gaps  = group.gaps.filter(g => group.top3.has(g))
@@ -239,10 +267,11 @@ function TargetSection({ tNum, group, rows, indices, onUpdate, onRemove, onAddAc
           </div>
         )}
         {visible.map(gap => (
-          <GapSubsection key={gap} gap={gap} accentColor="#3b82f6"
+          <GapSubsection key={gap} gap={gap} accentColor="#3b82f6" forcedSource="target" tNum={tNum}
             cdpRows={rows} allIndices={indices}
             onUpdate={onUpdate} onRemove={onRemove}
-            onAddAction={onAddAction} t={t} readOnly={readOnly}/>
+            onAddAction={onAddAction} t={t} readOnly={readOnly}
+            countryName={countryName} institutionName={institutionName}/>
         ))}
         {hasMore && (
           <button onClick={() => setShowAll(v => !v)}
@@ -266,7 +295,23 @@ export default function CdpPage() {
   const updateCdpRow = useStore(s => s.updateCdpRow)
   const navigate     = useStore(s => s.navigate)
   const lang         = useStore(s => s.lang)
-  const isReadOnly   = useStore(s => s.isReadOnly())
+  const userRole     = useStore(s => s.user?.role)
+  const user         = useStore(s => s.user)
+  const isReadOnly   = userRole === 'viewer'
+  const [countryName,    setCountryName]    = useState('')
+  const [institutionName,setInstitutionName]= useState('')
+
+  useEffect(() => {
+    if (!user) return
+    if (user.country_id) {
+      supabase.from('countries').select('name').eq('id', user.country_id).single()
+        .then(({ data }) => { if (data) setCountryName(data.name) })
+    }
+    if (user.institution_id) {
+      supabase.from('institutions').select('name').eq('id', user.institution_id).single()
+        .then(({ data }) => { if (data) setInstitutionName(data.name) })
+    }
+  }, [user])
   const t            = getT(lang ?? 'en')
 
   // ── Core capacity gaps — priority ordered ───────────────────
@@ -319,8 +364,8 @@ export default function CdpPage() {
     return { rows, indices }
   }
 
-  function handleAddAction(gap: string, source: 'core' | 'target', dimension?: string) {
-    addCdpRow(gap, source, dimension)
+  function handleAddAction(gap: string, source: 'core' | 'target', dimension?: string, tNum?: number) {
+    addCdpRow(gap, source, dimension, tNum)
   }
 
   const handleUpdate = useCallback((idx: number, field: string, val: string) => {
@@ -385,7 +430,8 @@ export default function CdpPage() {
                     top3={coreDimTop3[dim]}
                     cdpRows={rows} allIndices={indices}
                     onUpdate={handleUpdate} onRemove={handleRemove}
-                    onAddAction={handleAddAction} t={t} readOnly={isReadOnly}/>
+                    onAddAction={handleAddAction} t={t} readOnly={isReadOnly}
+                    countryName={countryName} institutionName={institutionName}/>
                 )
               })}
             </div>
@@ -411,7 +457,8 @@ export default function CdpPage() {
                   <TargetSection key={tNum} tNum={tNum} group={group}
                     rows={rows} indices={indices}
                     onUpdate={handleUpdate} onRemove={handleRemove}
-                    onAddAction={handleAddAction} t={t} readOnly={isReadOnly}/>
+                    onAddAction={handleAddAction} t={t} readOnly={isReadOnly}
+                    countryName={countryName} institutionName={institutionName}/>
                 )
               })}
             </div>

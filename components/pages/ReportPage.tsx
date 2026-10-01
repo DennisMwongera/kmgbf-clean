@@ -1,4 +1,6 @@
 'use client'
+import AiGapNarrative from '@/components/ai/AiGapNarrative'
+import AiAssessmentChecker from '@/components/ai/AiAssessmentChecker'
 import { useStore } from '@/lib/store'
 import { DIMENSIONS, KMGBF_TARGETS } from '@/lib/constants'
 import { getDimScores, getOverall, getTargetAvg, groupedQuestions, interpret, scoreColor, gapBadge } from '@/lib/utils'
@@ -8,7 +10,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useState, useEffect, useRef } from 'react'
 import { downloadCanvasAsImage, downloadCSV, downloadXLSX } from '@/lib/exportUtils'
 import ExportMenu from '@/components/ExportMenu'
-import { Printer, BarChart2, Radar, Target, ClipboardList, FileText, PieChart, Table2, CheckCircle2, Send, Eye } from 'lucide-react'
+import { Printer, BarChart2, Radar, Target, ClipboardList, FileText, PieChart, Table2, CheckCircle2, Send, Eye, AlertTriangle, Loader2 } from 'lucide-react'
 import { Chart, BarController, CategoryScale, LinearScale, BarElement, RadarController, RadialLinearScale, PointElement, LineElement, Filler, Tooltip, PieController, ArcElement, Legend } from 'chart.js'
 
 Chart.register(BarController, CategoryScale, LinearScale, BarElement, RadarController, RadialLinearScale, PointElement, LineElement, Filler, Tooltip, PieController, ArcElement, Legend)
@@ -114,7 +116,7 @@ function ReportRadarChart({ assessment, canvasRef }: { assessment: any; canvasRe
       },
       options: {
         layout:{ padding:28 },
-        scales:{ r:{ min:0, max:5, ticks:{stepSize:1,font:{size:9},backdropColor:'transparent',color:'#9ca3af'}, grid:{color:'rgba(0,0,0,.06)'}, angleLines:{color:'rgba(0,0,0,.08)'}, pointLabels:{font:{size:11,family:'Syne',weight:'500'},color:'#1b4332',padding:8} } },
+        scales:{ r:{ min:0, max:5, ticks:{stepSize:1,font:{size:10,weight:'bold'},backdropColor:'rgba(255,255,255,0.85)',backdropPadding:3,color:'#2d6a4f',showLabelBackdrop:true,z:1}, grid:{color:'rgba(0,0,0,.08)'}, angleLines:{color:'rgba(0,0,0,.12)',lineWidth:1}, pointLabels:{font:{size:11,family:'Syne',weight:'500'},color:'#1b4332',padding:8} } },
         plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>` ${ctx.parsed.r.toFixed(1)} / 5`}} },
         animation:{duration:600},
       },
@@ -191,7 +193,7 @@ const TABS = [
 ]
 
 export default function ReportPage() {
-  const { assessment, activeTab, setActiveTab, user } = useStore()
+  const { assessment, activeTab, setActiveTab, user, setAssessment } = useStore()
   const dimScores = getDimScores(assessment)
   const overall   = getOverall(assessment)
   const p         = assessment.profile
@@ -209,19 +211,28 @@ export default function ReportPage() {
       .then(({ data }) => { if (data && data.length > 0) setAssignedNums(data.map(r => r.target_num)) })
   }, [user?.institution_id])
 
+  const [showSubmitModal,  setShowSubmitModal]  = useState(false)
+  const [showReopenModal,  setShowReopenModal]  = useState(false)
+
+  const answeredCount  = assessment.coreRows.filter((r: any) => r.score !== null && r.score !== -1).length
+  const totalIndicators = 50
+  const completionPct  = Math.round((answeredCount / totalIndicators) * 100)
+  const isComplete     = answeredCount >= totalIndicators
+
   async function submitAssessment() {
-    if (!assessment.id) { alert('Please save your assessment first before submitting.'); return }
-    if (!confirm('Submit this assessment? It will be marked as submitted and locked from further edits.')) return
+    if (!assessment.id) return
     setSubmitting(true)
     await supabase.from('assessments').update({ status: 'submitted' }).eq('id', assessment.id)
     setAssessment({ ...assessment, status: 'submitted' })
     setSubmitting(false)
+    setShowSubmitModal(false)
   }
 
   async function reopenAssessment() {
     if (!assessment.id) return
     await supabase.from('assessments').update({ status: 'in_progress' }).eq('id', assessment.id)
     setAssessment({ ...assessment, status: 'in_progress' })
+    setShowReopenModal(false)
   }
 
   const isSubmitted = ['submitted','in_review','approved'].includes(assessment.status ?? '')
@@ -268,14 +279,16 @@ export default function ReportPage() {
                   {!assessment.status                && '— Draft'}
                 </span>
                 {/* Submit / Reopen */}
+                <AiGapNarrative mode="institution" />
+                <AiAssessmentChecker onProceed={() => setShowSubmitModal(true)} />
                 {!isSubmitted ? (
                   <button className="btn btn-primary flex items-center gap-1.5"
-                    onClick={submitAssessment} disabled={submitting || !assessment.id}>
-                    {submitting ? 'Submitting…' : <><Send size={13}/> Submit Assessment</>}
+                    onClick={() => setShowSubmitModal(true)} disabled={submitting || !assessment.id}>
+                    <Send size={13}/> Submit Assessment
                   </button>
                 ) : (
                   <button className="btn btn-ghost btn-sm flex items-center gap-1.5"
-                    onClick={reopenAssessment} style={{color:'#d97706'}}>
+                    onClick={() => setShowReopenModal(true)} style={{color:'#d97706'}}>
                     ↩ Reopen
                   </button>
                 )}
@@ -451,6 +464,102 @@ export default function ReportPage() {
             </div>
           : <div className="card"><EmptyState emoji="📋" msg="No development plan actions defined."/></div>
       )}
+
+      {/* ── Submit Confirmation Modal ── */}
+      {showSubmitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={e => { if (e.target === e.currentTarget) setShowSubmitModal(false) }}>
+          <div className="bg-white rounded-2xl p-7 w-full max-w-sm" style={{ boxShadow:'0 24px 60px rgba(0,0,0,.25)' }}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: isComplete ? '#d8f3dc' : '#fef3c7' }}>
+                {isComplete ? <CheckCircle2 size={20} style={{ color:'#1b4332' }}/> : <AlertTriangle size={20} style={{ color:'#d97706' }}/>}
+              </div>
+              <div>
+                <div className="font-bold text-forest-800">
+                  {isComplete ? 'Submit Assessment?' : 'Assessment Incomplete'}
+                </div>
+                <div className="text-[12px] text-forest-400 mt-0.5">
+                  {answeredCount}/{totalIndicators} indicators scored ({completionPct}%)
+                </div>
+              </div>
+            </div>
+
+            {/* Completion progress bar */}
+            <div className="mb-4">
+              <div className="h-2 w-full rounded-full overflow-hidden" style={{ background:'#e8e3da' }}>
+                <div className="h-full rounded-full transition-all"
+                  style={{ width:`${completionPct}%`, background: isComplete ? '#52b788' : completionPct >= 50 ? '#f59e0b' : '#ef4444' }}/>
+              </div>
+            </div>
+
+            {!isComplete && (
+              <div className="mb-4 px-3 py-2.5 rounded-xl text-[12.5px]"
+                style={{ background:'#fef3c7', border:'1px solid #fde68a', color:'#92400e' }}>
+                ⚠️ <strong>{totalIndicators - answeredCount} indicators</strong> have not been scored yet.
+                Submitting now will lock the assessment with incomplete data.
+                We recommend completing all indicators before submitting.
+              </div>
+            )}
+
+            {isComplete && (
+              <p className="text-[12.5px] text-forest-600 mb-5">
+                All {totalIndicators} indicators have been scored. Once submitted, the assessment will be
+                locked for editing until your country admin reviews and either approves or returns it.
+              </p>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={() => setShowSubmitModal(false)}
+                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border"
+                style={{ borderColor:'#e8e3da', color:'#5c7566' }}>
+                {isComplete ? 'Cancel' : 'Go Back & Complete'}
+              </button>
+              <button onClick={submitAssessment} disabled={submitting}
+                className="flex-1 py-2.5 rounded-xl text-[13px] font-bold text-white flex items-center justify-center gap-1.5"
+                style={{ background: isComplete ? '#1b4332' : '#d97706' }}>
+                {submitting
+                  ? <><Loader2 size={13} className="animate-spin"/> Submitting…</>
+                  : isComplete
+                    ? <><Send size={13}/> Submit</>
+                    : 'Submit Anyway'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reopen Confirmation Modal ── */}
+      {showReopenModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={e => { if (e.target === e.currentTarget) setShowReopenModal(false) }}>
+          <div className="bg-white rounded-2xl p-7 w-full max-w-sm" style={{ boxShadow:'0 24px 60px rgba(0,0,0,.25)' }}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                style={{ background:'#fef3c7' }}>
+                <span style={{ fontSize:20 }}>↩</span>
+              </div>
+              <div>
+                <div className="font-bold text-forest-800">Reopen Assessment?</div>
+                <div className="text-[12px] text-forest-400 mt-0.5">This will unlock the assessment for editing</div>
+              </div>
+            </div>
+            <p className="text-[12.5px] text-forest-600 mb-5">
+              The assessment status will return to <strong>In Progress</strong>. You will be able to
+              update responses before resubmitting. Your country admin will be notified.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowReopenModal(false)}
+                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border"
+                style={{ borderColor:'#e8e3da', color:'#5c7566' }}>Cancel</button>
+              <button onClick={reopenAssessment}
+                className="flex-1 py-2.5 rounded-xl text-[13px] font-bold text-white"
+                style={{ background:'#d97706' }}>↩ Reopen</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
