@@ -1,4 +1,4 @@
-// app/api/ai/route.ts
+// app/api/ai/route.ts - debugging version of the AI API route for Anthropic Claude integration
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
